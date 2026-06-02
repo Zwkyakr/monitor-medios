@@ -10,10 +10,11 @@ from flask import Flask
 import threading
 
 # ==============================================================================
-# 1. CONFIGURACIÓN E IDENTIFICACIÓN
+# 1. CONFIGURACIÓN E IDENTIFICACIÓN (Extracción Segura de Llaves)
 # ==============================================================================
-TELEGRAM_TOKEN = "8606322768:AAFdZddapz1DdTdTyEBoFkFh5mtAhrtzG_Q"
-CHAT_ID = 1468116225
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+CHAT_ID = int(os.environ.get("CHAT_ID", "1468116225"))
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 MODO_LISTA = "AUTO" 
 
@@ -47,34 +48,19 @@ LISTA_2 = [
 ]
 
 # ==============================================================================
-# 3. PARÁMETROS DE FILTRADO (Gobernadora, Dependencias y los 212 Municipios)
+# 3. PARÁMETROS DE FILTRADO
 # ==============================================================================
 PARAMETROS = [
-    # ---- GOBERNATURA Y ENTORNO ----
     "Rocío Nahle", "Rocio Nahle", "Nahle", "Mañanera", "DIF Estatal", "DIF Veracruz",
-    
-    # ---- GABINETE Y SECRETARÍAS ----
-    "CGEC", "Contraloría General del Estado",
-    "CGCS", "Coordinación General Comunicación Social",
-    "SEGOB", "Secretaría de Gobierno",
-    "SSP", "Secretaría de Seguridad Pública",
-    "SEV", "Secretaría de Educación de Veracruz",
-    "SS", "Secretaría de Salud",
-    "SEFIPLAN", "Secretaría de Finanzas y Planeación",
-    "SEDECOP", "Secretaría de Desarrollo Económico y Portuario",
-    "SEDESOL", "Secretaría de Desarrollo Social",
-    "SIOP", "Secretaría de Infraestructura y Obras Públicas",
-    "STPSP", "Secretaría de Trabajo, Previsión Social y Productividad",
-    "SECTUR", "Secretaría de Turismo",
-    "SECVER", "Secretaría de Cultura de Veracruz",
-    "SEDEMA", "Secretaría de Medio Ambiente",
-    "SEDARPA", "Secretaría de Desarrollo Agropecuario, Rural, Pesca y Alimentación",
-    "SPC", "Secretaría de Protección Civil", "Protección Civil",
-    
-    # ---- REGIONES ----
+    "CGEC", "Contraloría General del Estado", "CGCS", "Coordinación General Comunicación Social",
+    "SEGOB", "Secretaría de Gobierno", "SSP", "Secretaría de Seguridad Pública",
+    "SEV", "Secretaría de Educación de Veracruz", "SS", "Secretaría de Salud",
+    "SEFIPLAN", "Secretaría de Finanzas y Planeación", "SEDECOP", "Secretaría de Desarrollo Económico y Portuario",
+    "SEDESOL", "Secretaría de Desarrollo Social", "SIOP", "Secretaría de Infraestructura y Obras Públicas",
+    "STPSP", "Secretaría de Trabajo, Previsión Social y Productividad", "SECTUR", "Secretaría de Turismo",
+    "SECVER", "Secretaría de Cultura de Veracruz", "SEDEMA", "Secretaría de Medio Ambiente",
+    "SEDARPA", "Secretaría de Desarrollo Agropecuario, Rural, Pesca y Alimentación", "SPC", "Secretaría de Protección Civil",
     "Zona Norte", "Zona Centro", "Zona Sur", "Zona Altas Montañas", "Zona Totonacapan",
-    
-    # ---- LOS 212 MUNICIPIOS DE VERACRUZ ----
     "Acajete", "Acatlán", "Acayucan", "Actopan", "Acula", "Acultzingo", "Agua Dulce", 
     "Álamo Temapache", "Alpatláhuac", "Alto Lucero", "Altotonga", "Alvarado", "Amatitlán", 
     "Amatlán de los Reyes", "Ángel R. Cabada", "Apazapan", "Aquila", "Astacinga", 
@@ -118,69 +104,74 @@ PARAMETROS = [
 ARCHIVO_HISTORIAL = "historial_noticias.json"
 
 # ==============================================================================
-# 4. FUNCIONES LÓGICAS Y REMOCIÓN DE ACENTOS
+# 4. FUNCIONES LÓGICAS Y CONEXIÓN CON IA
 # ==============================================================================
 def normalizar_texto(texto):
-    """Convierte a minúsculas y elimina acentos/diacríticos de forma nativa."""
-    if not texto:
-        return ""
-    texto_lower = texto.lower()
-    # Separar caracteres base de sus acentos y filtrar
-    return "".join(c for c in unicodedata.normalize('NFD', texto_lower) if unicodedata.category(c) != 'Mn')
+    if not texto: return ""
+    return "".join(c for c in unicodedata.normalize('NFD', texto.lower()) if unicodedata.category(c) != 'Mn')
 
 def determinar_lista_medios():
-    if MODO_LISTA == "LISTA_1":
-        return LISTA_1, "Lista 1 (Manual)"
-    elif MODO_LISTA == "LISTA_2":
-        return LISTA_2, "Lista 2 (Manual)"
-    else:
-        dia_semana = datetime.today().weekday()
-        if dia_semana >= 5:
-            return LISTA_2, "Lista 2 (Fin de Semana - Auto)"
-        return LISTA_1, "Lista 1 (Entre Semana - Auto)"
+    if MODO_LISTA == "LISTA_1": return LISTA_1, "Lista 1 (Manual)"
+    if MODO_LISTA == "LISTA_2": return LISTA_2, "Lista 2 (Manual)"
+    return (LISTA_2, "Lista 2 (Fin de Semana)") if datetime.today().weekday() >= 5 else (LISTA_1, "Lista 1 (Entre Semana)")
 
 def cargar_historial():
     if os.path.exists(ARCHIVO_HISTORIAL):
         try:
-            with open(ARCHIVO_HISTORIAL, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            return []
+            with open(ARCHIVO_HISTORIAL, "r", encoding="utf-8") as f: return json.load(f)
+        except: return []
     return []
 
 def guardar_historial(historial):
-    if len(historial) > 1500:  # Ampliado a 1500 por el volumen de municipios
-        historial = historial[-1500:]
+    if len(historial) > 1500: historial = historial[-1500:]
     try:
-        with open(ARCHIVO_HISTORIAL, "w", encoding="utf-8") as f:
-            json.dump(historial, f, ensure_ascii=False, indent=4)
-    except:
-        pass
+        with open(ARCHIVO_HISTORIAL, "w", encoding="utf-8") as f: json.dump(historial, f, ensure_ascii=False, indent=4)
+    except: pass
 
 def evaluar_texto(texto, palabras_clave):
-    """Evalúa de forma inteligente e insensible a acentos."""
     texto_norm = normalizar_texto(texto)
-    
     for kw in palabras_clave:
         kw_norm = normalizar_texto(kw)
-        
-        # Para siglas cortas (ej. SS, SEV, Xico, Isla) usar límites estrictos de palabra
         if len(kw_norm) <= 4:
-            if re.search(rf"\b{re.escape(kw_norm)}\b", texto_norm):
-                return True, kw
+            if re.search(rf"\b{re.escape(kw_norm)}\b", texto_norm): return True, kw
         else:
-            # Para frases o municipios largos, búsqueda por subcadena normalizada
-            if kw_norm in texto_norm:
-                return True, kw
+            if kw_norm in texto_norm: return True, kw
     return False, None
 
+def analizar_nota_con_ia(titulo, resumen):
+    if not GEMINI_API_KEY:
+        return "⚠️ Error: GEMINI_API_KEY no configurada en las variables de entorno."
+        
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    
+    prompt = (
+        f"Eres un analista de comunicación política experto en el estado de Veracruz. "
+        f"Analiza la siguiente nota informativa (Título y/o Resumen) y genera estrictamente lo siguiente:\n"
+        f"1) Un resumen ejecutivo muy conciso en exactamente 3 viñetas cortas.\n"
+        f"2) Sentimiento de la nota hacia la administración pública (Positivo, Neutral o Negativo).\n"
+        f"3) Nivel de Riesgo Político o Potencial Crisis para el Gobierno del Estado (Bajo, Medio o Alto) con una breve línea del porqué.\n\n"
+        f"Título: {titulo}\n"
+        f"Contexto: {resumen}\n\n"
+        f"Responde usando formato Markdown limpio. Sé directo, institucional y preciso."
+    )
+    
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    
+    try:
+        response = requests.post(url, json=payload, timeout=15)
+        if response.status_code == 200:
+            resultado = response.json()
+            return resultado['candidates'][0]['content']['parts'][0]['text']
+        return f"⚠️ No se pudo generar análisis de IA (Error del servidor de Google)."
+    except:
+        return f"⚠️ Error de conexión con la IA."
+
 def enviar_mensaje_telegram(texto):
+    if not TELEGRAM_TOKEN: return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": texto, "parse_mode": "Markdown", "disable_web_page_preview": True}
-    try:
-        requests.post(url, json=payload, timeout=10)
-    except:
-        pass
+    try: requests.post(url, json=payload, timeout=10)
+    except: pass
 
 def ejecutar_monitoreo_silencioso():
     medios_activos, nombre_lista = determinar_lista_medios()
@@ -193,8 +184,7 @@ def ejecutar_monitoreo_silencioso():
             nombre_medio = feed.feed.get("title", url_rss.split("//")[-1].split("/")[0])
             for entrada in feed.entries:
                 link = entrada.get("link")
-                if not link or link in historial:
-                    continue
+                if not link or link in historial: continue
                 
                 titulo = entrada.get("title", "")
                 resumen = entrada.get("summary", "")
@@ -204,20 +194,29 @@ def ejecutar_monitoreo_silencioso():
                     hizo_match, kw_detectada = evaluar_texto(resumen, PARAMETROS)
                 
                 if hizo_match:
+                    analisis_ia = analizar_nota_con_ia(titulo, resumen)
+                    
+                    ahora = datetime.now()
+                    timestamp_alerta = ahora.strftime("%H:%M del %d/%m/%Y")
+                    
                     mensaje = (
-                        f"🚨 *ALERTA DE MONITOREO*\n"
+                        f"🚨 *ALERTA DE MONITOREO CRÍTICO*\n"
                         f"━━━━━━━━━━━━━━━━━━━\n"
                         f"📌 *Medio:* {nombre_medio}\n"
-                        f"🎯 *Parámetro:* `{kw_detectada}`\n\n"
-                        f"📝 *Título:* {titulo}\n\n"
-                        f"🔗 [Abrir Nota]({link})"
+                        f"🎯 *Match Origen:* `{kw_detectada}`\n"
+                        f"📝 *Título:* {titulo}\n"
+                        f"━━━━━━━━━━━━━━━━━━━\n"
+                        f"🧠 *ANÁLISIS DE INTELIGENCIA (IA):*\n"
+                        f"{analisis_ia}\n"
+                        f"━━━━━━━━━━━━━━━━━━━\n"
+                        f"🕒 _Información copiada a las {timestamp_alerta}_\n"
+                        f"🔗 [Abrir Nota Completa]({link})"
                     )
                     enviar_mensaje_telegram(mensaje)
                     alertas_enviadas += 1
                 
                 historial.append(link)
-        except:
-            continue
+        except: continue
             
     guardar_historial(historial)
     return alertas_enviadas, nombre_lista
@@ -229,83 +228,62 @@ def iniciar_interfaz_bot():
     global MODO_LISTA
     offset = 0
     time.sleep(5)  
-    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios En Línea (Nube)*\nEscribe `/ayuda` para ver los comandos.")
+    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios con IA Activo*\nEscribe `/ayuda` para ver los comandos.")
 
     while True:
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={offset}&timeout=20"
             respuesta = requests.get(url, timeout=25).json()
-            
             if not respuesta.get("ok") or not respuesta.get("result"):
                 time.sleep(1)
                 continue
-                
             for actualizacion in respuesta["result"]:
                 offset = actualizacion["update_id"] + 1
                 mensaje = actualizacion.get("message", {})
                 usuario_id = mensaje.get("from", {}).get("id")
                 texto_comando = mensaje.get("text", "").strip()
                 
-                if usuario_id != CHAT_ID:
-                    continue
+                if usuario_id != CHAT_ID: continue
                 
                 if texto_comando == "/start" or texto_comando == "/ayuda":
                     menu = (
-                        "📱 *Panel de Control de Monitoreo*\n\n"
-                        "👉 `/escanear` : Fuerza un rastreo de medios en este instante.\n"
-                        "👉 `/modo` : Muestra el modo activo y te permite cambiarlo.\n"
-                        "👉 `/parametros` : Lista los criterios de búsqueda activos.\n"
-                        "👉 `/limpiar` : Borra el historial."
+                        "📱 *Panel de Control Inteligente*\n\n"
+                        "👉 `/escanear` : Escaneo de portales con análisis sintético de IA.\n"
+                        "👉 `/modo` : Cambiar listas de medios.\n"
+                        "👉 `/parametros` : Ver criterios activos.\n"
+                        "👉 `/limpiar` : Forzar re-análisis completo de portadas."
                     )
                     enviar_mensaje_telegram(menu)
-                    
                 elif texto_comando == "/escanear":
-                    enviar_mensaje_telegram("🔍 _Escaneando portales informativos... Por favor espera._")
+                    enviar_mensaje_telegram("🔍 _Procesando portales y generando análisis cognitivo de IA... Por favor espera._")
                     total, lista_usada = ejecutar_monitoreo_silencioso()
-                    enviar_mensaje_telegram(f"✅ *Escaneo Terminado.*\n📋 Usando: `{lista_usada}`\n✨ Nuevas alertas: `{total}`")
-                    
+                    enviar_mensaje_telegram(f"✅ *Escaneo Terminado.*\n✨ Alertas procesadas por IA: `{total}`")
                 elif texto_comando == "/modo":
-                    msg_modo = (
-                        f"⚙️ *Configuración de Listas*\n\n"
-                        f"Modo actual: `{MODO_LISTA}`\n\n"
-                        f"Comandos para cambiarlo:\n"
-                        f"👉 `/set_auto` (Automático)\n"
-                        f"👉 `/set_lista1` (Forzar Lista 1)\n"
-                        f"👉 `/set_lista2` (Forzar Lista 2)"
-                    )
+                    msg_modo = f"⚙️ Modo actual: `{MODO_LISTA}`\n\n👉 `/set_auto` | `/set_lista1` | `/set_lista2`"
                     enviar_mensaje_telegram(msg_modo)
-                    
                 elif texto_comando == "/set_auto":
                     MODO_LISTA = "AUTO"
-                    enviar_mensaje_telegram("🔄 Modo cambiado a: `AUTOMÁTICO`")
+                    enviar_mensaje_telegram("🔄 Modo: `AUTOMÁTICO`")
                 elif texto_comando == "/set_lista1":
                     MODO_LISTA = "LISTA_1"
-                    enviar_mensaje_telegram("📌 Modo cambiado a: `FORZAR LISTA 1`")
+                    enviar_mensaje_telegram("📌 Modo: `FORZAR LISTA 1`")
                 elif texto_comando == "/set_lista2":
                     MODO_LISTA = "LISTA_2"
-                    enviar_mensaje_telegram("📌 Modo cambiado a: `FORZAR LISTA 2`")
-                    
+                    enviar_mensaje_telegram("📌 Modo: `FORZAR LISTA 2`")
                 elif texto_comando == "/parametros":
-                    lista_kw = "\n".join([f"• {kw}" for kw in PARAMETROS[:15]])
-                    msg_kw = f"🎯 *Palabras clave activas (Primeras 15):*\n\n{lista_kw}\n\n_Y {len(PARAMETROS)-15} más._"
+                    msg_kw = f"🎯 *Criterios:* Gobernadora, Secretarías Estatales y los 212 Municipios de Veracruz activos."
                     enviar_mensaje_telegram(msg_kw)
-                    
                 elif texto_comando == "/limpiar":
-                    if os.path.exists(ARCHIVO_HISTORIAL):
-                        os.remove(ARCHIVO_HISTORIAL)
-                    enviar_mensaje_telegram("🗑️ *Historial borrado.*")
-                    
-        except:
-            time.sleep(2)
+                    if os.path.exists(ARCHIVO_HISTORIAL): os.remove(ARCHIVO_HISTORIAL)
+                    enviar_mensaje_telegram("🗑️ *Historial limpio.* Listo para re-analizar portadas.")
+        except: time.sleep(2)
 
 # ==============================================================================
-# 6. SERVIDOR WEB PRINCIPAL (Mantiene vivo a Render)
+# 6. SERVIDOR WEB PRINCIPAL
 # ==============================================================================
 web_app = Flask('')
-
 @web_app.route('/')
-def home():
-    return "Bot de Monitoreo Activo 24/7"
+def home(): return "Bot de Monitoreo con IA Inteligente 24/7"
 
 if __name__ == "__main__":
     threading.Thread(target=iniciar_interfaz_bot, daemon=True).start()
