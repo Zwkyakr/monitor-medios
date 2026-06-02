@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+import unicodedata
 from datetime import datetime
 from flask import Flask
 import threading
@@ -46,36 +47,87 @@ LISTA_2 = [
 ]
 
 # ==============================================================================
-# 3. PARÁMETROS DE FILTRADO (Corregidos)
+# 3. PARÁMETROS DE FILTRADO (Gobernadora, Dependencias y los 212 Municipios)
 # ==============================================================================
 PARAMETROS = [
-    "Rocío Nahle", "Rocio Nahle", "Nahle",
-    "CGEC", "Contraloría General del Estado", "Contraloria General del Estado",
-    "CGCS", "Coordinación General Comunicación Social", "Coordinacion General Comunicacion Social",
-    "SEGOB", "Secretaría de Gobierno", "Secretaria de Gobierno",
-    "SSP", "Secretaría de Seguridad Pública", "Secretaria de Seguridad Publica",
-    "SEV", "Secretaría de Educación de Veracruz", "Secretaria de Educacion de Veracruz",
+    # ---- GOBERNATURA Y ENTORNO ----
+    "Rocío Nahle", "Rocio Nahle", "Nahle", "Mañanera", "DIF Estatal", "DIF Veracruz",
+    
+    # ---- GABINETE Y SECRETARÍAS ----
+    "CGEC", "Contraloría General del Estado",
+    "CGCS", "Coordinación General Comunicación Social",
+    "SEGOB", "Secretaría de Gobierno",
+    "SSP", "Secretaría de Seguridad Pública",
+    "SEV", "Secretaría de Educación de Veracruz",
     "SS", "Secretaría de Salud",
-    "SEFIPLAN", "Secretaría de Finanzas y Planeación", "Secretaria de Finanzas y Planeacion",
-    "SEDECOP", "Secretaría de Desarrollo Económico y Portuario", "Secretaria de Desarrollo Economico y Portuario",
+    "SEFIPLAN", "Secretaría de Finanzas y Planeación",
+    "SEDECOP", "Secretaría de Desarrollo Económico y Portuario",
     "SEDESOL", "Secretaría de Desarrollo Social",
-    "SIOP", "Secretaría de Infraestructura y Obras Públicas", "Secretaria de Infraestructura y Obras Publicas",
-    "STPSP", "Secretaría de Trabajo, Previsión Social y Productividad", "Secretaria de Trabajo",
+    "SIOP", "Secretaría de Infraestructura y Obras Públicas",
+    "STPSP", "Secretaría de Trabajo, Previsión Social y Productividad",
     "SECTUR", "Secretaría de Turismo",
     "SECVER", "Secretaría de Cultura de Veracruz",
     "SEDEMA", "Secretaría de Medio Ambiente",
-    "SEDARPA", "Secretaría de Desarrollo Agropecuario, Rural, Pesca y Alimentación", "Sedarpa",
-    "SPC", "Secretaría de Protección Civil", "Proteccion Civil",
-    "DIF ESTATAL", "DIF Veracruz",
-    "ZONA NORTE", "ZONA CENTRO", "ZONA SUR", "ZONA ALTAS MONTAÑAS", "ZONA TOTONACAPAN",
-    "MAÑANERA"
+    "SEDARPA", "Secretaría de Desarrollo Agropecuario, Rural, Pesca y Alimentación",
+    "SPC", "Secretaría de Protección Civil", "Protección Civil",
+    
+    # ---- REGIONES ----
+    "Zona Norte", "Zona Centro", "Zona Sur", "Zona Altas Montañas", "Zona Totonacapan",
+    
+    # ---- LOS 212 MUNICIPIOS DE VERACRUZ ----
+    "Acajete", "Acatlán", "Acayucan", "Actopan", "Acula", "Acultzingo", "Agua Dulce", 
+    "Álamo Temapache", "Alpatláhuac", "Alto Lucero", "Altotonga", "Alvarado", "Amatitlán", 
+    "Amatlán de los Reyes", "Ángel R. Cabada", "Apazapan", "Aquila", "Astacinga", 
+    "Atlahuilco", "Atoyac", "Atzacan", "Atzalan", "Ayahualulco", "Banderilla", 
+    "Benito Juárez", "Boca del Río", "Calcahualco", "Camerino Z. Mendoza", 
+    "Carlos A. Carrillo", "Carrillo Puerto", "Catemaco", "Cazones de Herrera", 
+    "Cerro Azul", "Chacaltianguis", "Chalma", "Chiconamel", "Chiconquiaco", 
+    "Chicontepec", "Chinameca", "Chinampa de Gorostiza", "Chocamán", "Chontla", 
+    "Chumatlán", "Coacoatzintla", "Coahuitlán", "Coatepec", "Coatzacoalcos", 
+    "Coatzintla", "Comapa", "Córdoba", "Cosamaloapan", "Cosautlán de Carvajal", 
+    "Coscomatepec", "Cosoleacaque", "Cotaxtla", "Coxquihui", "Coyutla", "Cuichapa", 
+    "Cuitláhuac", "El Higo", "Emiliano Zapata", "Espinal", "Filomeno Mata", "Fortín", 
+    "Gutiérrez Zamora", "Hidalgotitlán", "Huatusco", "Huayacocotla", "Hueyapan de Ocampo", 
+    "Huiloapan", "Ignacio de la Llave", "Ilamatlán", "Isla", "Ixcatepec", 
+    "Ixhuacán de los Reyes", "Ixhuatlán de Madero", "Ixhuatlán del Café", 
+    "Ixhuatlán del Sureste", "Ixmatlahuacan", "Ixtaczoquitlán", "Jalacingo", 
+    "Jalcomulco", "Jáltipan", "Jamapa", "Jesús Carranza", "Jilotepec", "José Azueta", 
+    "Juan Rodríguez Clara", "Juchique de Ferrer", "Landero y Coss", "Las Choapas", 
+    "Las Minas", "Las Vigas", "Lerdo de Tejada", "Los Reyes", "Magdalena", 
+    "Maltrata", "Mariano Escobedo", "Martínez de la Torre", "Mecayapan", "Mecatlán", 
+    "Miahuatlán", "Minatitlán", "Misantla", "Mixtla de Altamirano", "Moloacán", 
+    "Naranjal", "Naranjos Amatlán", "Naolinco", "Nanchital", "Nautla", "Nogales", 
+    "Oluta", "Omealca", "Orizaba", "Otatitlán", "Oteapan", "Ozuluama", "Pajapan", 
+    "Pánuco", "Papantla", "Paso del Macho", "Paso de Ovejas", "Perote", 
+    "Platón Sánchez", "Playa Vicente", "Poza Rica", "Pueblo Viejo", "Puente Nacional", 
+    "Rafael Delgado", "Rafael Lucio", "Río Blanco", "Saltabarranca", 
+    "San Andrés Tenejapan", "San Andrés Tuxtla", "San Juan Evangelista", 
+    "Santiago Tuxtla", "Santiago Sochiapan", "Sayula de Alemán", "Soconusco", 
+    "Sochiapa", "Soledad Atzompa", "Soledad de Doblado", "Soteapan", "Tamalín", 
+    "Tamiahua", "Tampico Alto", "Tancoco", "Tantima", "Tantoyuca", "Tatahuicapan", 
+    "Tatatila", "Tecolutla", "Tehuipango", "Tempoal", "Tenampa", "Tenochtitlán", 
+    "Teocelo", "Tepatlaxco", "Tepetlán", "Tepetzintla", "Tequila", "Texcatepec", 
+    "Texhuacán", "Texistepec", "Tezonapa", "Tierra Blanca", "Tihuatlán", 
+    "Tlachichilco", "Tlacojalpan", "Tlacolulan", "Tlacotalpan", "Tlacotepec de Mejía", 
+    "Tlaltetela", "Tlapacoyan", "Tlaquilpa", "Tlilapan", "Tomatlán", "Tonayán", 
+    "Totutla", "Tres Valles", "Tuxpan", "Tuxtilla", "Úrsulo Galván", "Vega de Alatorre", 
+    "Veracruz", "Villa Aldama", "Xalapa", "Xico", "Xoxocotla", "Yanga", "Yecuatla", 
+    "Zacualpan", "Zaragoza", "Zentla", "Zongolica", "Zontecomatlán", "Zozocolco"
 ]
 
 ARCHIVO_HISTORIAL = "historial_noticias.json"
 
 # ==============================================================================
-# 4. FUNCIONES LÓGICAS
+# 4. FUNCIONES LÓGICAS Y REMOCIÓN DE ACENTOS
 # ==============================================================================
+def normalizar_texto(texto):
+    """Convierte a minúsculas y elimina acentos/diacríticos de forma nativa."""
+    if not texto:
+        return ""
+    texto_lower = texto.lower()
+    # Separar caracteres base de sus acentos y filtrar
+    return "".join(c for c in unicodedata.normalize('NFD', texto_lower) if unicodedata.category(c) != 'Mn')
+
 def determinar_lista_medios():
     if MODO_LISTA == "LISTA_1":
         return LISTA_1, "Lista 1 (Manual)"
@@ -97,8 +149,8 @@ def cargar_historial():
     return []
 
 def guardar_historial(historial):
-    if len(historial) > 1000:
-        historial = historial[-1000:]
+    if len(historial) > 1500:  # Ampliado a 1500 por el volumen de municipios
+        historial = historial[-1500:]
     try:
         with open(ARCHIVO_HISTORIAL, "w", encoding="utf-8") as f:
             json.dump(historial, f, ensure_ascii=False, indent=4)
@@ -106,14 +158,19 @@ def guardar_historial(historial):
         pass
 
 def evaluar_texto(texto, palabras_clave):
-    texto_clean = texto.lower()
+    """Evalúa de forma inteligente e insensible a acentos."""
+    texto_norm = normalizar_texto(texto)
+    
     for kw in palabras_clave:
-        kw_clean = kw.lower()
-        if len(kw_clean) <= 4:
-            if re.search(rf"\b{re.escape(kw_clean)}\b", texto_clean):
+        kw_norm = normalizar_texto(kw)
+        
+        # Para siglas cortas (ej. SS, SEV, Xico, Isla) usar límites estrictos de palabra
+        if len(kw_norm) <= 4:
+            if re.search(rf"\b{re.escape(kw_norm)}\b", texto_norm):
                 return True, kw
         else:
-            if kw_clean in texto_clean:
+            # Para frases o municipios largos, búsqueda por subcadena normalizada
+            if kw_norm in texto_norm:
                 return True, kw
     return False, None
 
@@ -171,7 +228,7 @@ def ejecutar_monitoreo_silencioso():
 def iniciar_interfaz_bot():
     global MODO_LISTA
     offset = 0
-    time.sleep(5)  # Esperar a que el servidor web levante primero
+    time.sleep(5)  
     enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios En Línea (Nube)*\nEscribe `/ayuda` para ver los comandos.")
 
     while True:
@@ -251,9 +308,6 @@ def home():
     return "Bot de Monitoreo Activo 24/7"
 
 if __name__ == "__main__":
-    # 1. Arranca tu bot interactivo en un hilo secundario
     threading.Thread(target=iniciar_interfaz_bot, daemon=True).start()
-    
-    # 2. Arranca la web en el hilo principal (Render se queda escuchando este puerto)
     puerto = int(os.environ.get("PORT", 8080))
     web_app.run(host='0.0.0.0', port=puerto)
