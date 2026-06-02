@@ -14,7 +14,6 @@ import threading
 # ==============================================================================
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = int(os.environ.get("CHAT_ID", "1468116225"))
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 MODO_LISTA = "AUTO" 
 
@@ -69,7 +68,7 @@ PARAMETROS = [
     "Carlos A. Carrillo", "Carrillo Puerto", "Catemaco", "Cazones de Herrera", 
     "Cerro Azul", "Chacaltianguis", "Chalma", "Chiconamel", "Chiconquiaco", 
     "Chicontepec", "Chinameca", "Chinampa de Gorostiza", "Chocamán", "Chontla", 
-    "Chumatlán", "Coacoatzintla", "Coahuitlán", "Coatepec", "Coatzacoalcos", 
+    "Chumatlán", "Coacoatzintla", "Coahuitlán", "Coatepec", "Coatepec", "Coatzacoalcos", 
     "Coatzintla", "Comapa", "Córdoba", "Cosamaloapan", "Cosautlán de Carvajal", 
     "Coscomatepec", "Cosoleacaque", "Cotaxtla", "Coxquihui", "Coyutla", "Cuichapa", 
     "Cuitláhuac", "El Higo", "Emiliano Zapata", "Espinal", "Filomeno Mata", "Fortín", 
@@ -104,7 +103,7 @@ PARAMETROS = [
 ARCHIVO_HISTORIAL = "historial_noticias.json"
 
 # ==============================================================================
-# 4. FUNCIONES LÓGICAS Y CONEXIÓN CON IA
+# 4. FUNCIONES LÓGICAS
 # ==============================================================================
 def normalizar_texto(texto):
     if not texto: return ""
@@ -138,41 +137,6 @@ def evaluar_texto(texto, palabras_clave):
             if kw_norm in texto_norm: return True, kw
     return False, None
 
-def analizar_nota_con_ia(titulo, resumen):
-    if not GEMINI_API_KEY:
-        return "⚠️ Error: GEMINI_API_KEY no configurada."
-        
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-    
-    prompt = (
-        f"Eres un analista de comunicación política experto en el estado de Veracruz. "
-        f"Analiza la siguiente nota informativa (Título y/o Resumen) y genera estrictamente lo siguiente:\n"
-        f"1) Un resumen ejecutivo muy conciso en exactamente 3 viñetas cortas.\n"
-        f"2) Sentimiento de la nota hacia la administración pública (Positivo, Neutral o Negativo).\n"
-        f"3) Nivel de Riesgo Político o Potencial Crisis para el Gobierno del Estado (Bajo, Medio o Alto) con una breve línea del porqué.\n\n"
-        f"Título: {titulo}\n"
-        f"Contexto: {resumen}\n\n"
-        f"Responde usando formato Markdown limpio. Sé directo, institucional y preciso."
-    )
-    
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    
-    try:
-        response = requests.post(url, json=payload, timeout=15)
-        if response.status_code == 200:
-            resultado = response.json()
-            return resultado['candidates'][0]['content']['parts'][0]['text']
-        
-        try:
-            error_json = response.json()
-            mensaje_error = error_json.get("error", {}).get("message", "Sin detalle.")
-            return f"⚠️ Error {response.status_code} de Google: *{mensaje_error}*"
-        except:
-            return f"⚠️ Error {response.status_code} de Google."
-            
-    except:
-        return f"⚠️ Error de conexión con la IA."
-
 def enviar_mensaje_telegram(texto):
     if not TELEGRAM_TOKEN: return False
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -180,7 +144,6 @@ def enviar_mensaje_telegram(texto):
     
     try:
         response = requests.post(url, json=payload, timeout=10)
-        # BÓVEDA DE RESPALDO: Si falla por formato Markdown, se envía como texto plano para no perder la nota
         if response.status_code == 400:
             payload["parse_mode"] = ""
             response = requests.post(url, json=payload, timeout=10)
@@ -209,8 +172,6 @@ def ejecutar_monitoreo_silencioso():
                     hizo_match, kw_detectada = evaluar_texto(resumen, PARAMETROS)
                 
                 if hizo_match:
-                    analisis_ia = analizar_nota_con_ia(titulo, resumen)
-                    
                     ahora = datetime.now()
                     timestamp_alerta = ahora.strftime("%H:%M del %d/%m/%Y")
                     
@@ -221,17 +182,13 @@ def ejecutar_monitoreo_silencioso():
                         f"🎯 *Match Origen:* `{kw_detectada}`\n"
                         f"📝 *Título:* {titulo}\n"
                         f"━━━━━━━━━━━━━━━━━━━\n"
-                        f"🧠 *ANÁLISIS DE INTELIGENCIA (IA):*\n"
-                        f"{analisis_ia}\n"
-                        f"━━━━━━━━━━━━━━━━━━━\n"
                         f"🕒 _Información copiada a las {timestamp_alerta}_\n"
                         f"🔗 [Abrir Nota Completa]({link})"
                     )
                     
-                    # Intenta enviar y aplica una pausa para evitar Flood Control de Telegram
                     enviar_mensaje_telegram(mensaje)
                     alertas_enviadas += 1
-                    time.sleep(0.5) 
+                    time.sleep(0.3)  # Pausa sutil antispam para Telegram
                 
                 historial.append(link)
         except: continue
@@ -246,7 +203,7 @@ def iniciar_interfaz_bot():
     global MODO_LISTA
     offset = 0
     time.sleep(5)  
-    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios con IA Activo*\nEscribe `/ayuda` para ver los comandos.")
+    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios Activo (Sin IA)*\nEscribe `/ayuda` para ver los comandos.")
 
     while True:
         try:
@@ -265,17 +222,17 @@ def iniciar_interfaz_bot():
                 
                 if texto_comando == "/start" or texto_comando == "/ayuda":
                     menu = (
-                        "📱 *Panel de Control Inteligente*\n\n"
-                        "👉 `/escanear` : Escaneo de portales con análisis sintético de IA.\n"
+                        "📱 *Panel de Control*\n\n"
+                        "👉 `/escanear` : Escaneo ultra rápido de portales.\n"
                         "👉 `/modo` : Cambiar listas de medios.\n"
                         "👉 `/parametros` : Ver criterios activos.\n"
                         "👉 `/limpiar` : Forzar re-análisis completo de portadas."
                     )
                     enviar_mensaje_telegram(menu)
                 elif texto_comando == "/escanear":
-                    enviar_mensaje_telegram("🔍 _Procesando portales y generando análisis cognitivo de IA... Por favor espera._")
+                    enviar_mensaje_telegram("🔍 _Escaneando portales de noticias... Por favor espera._")
                     total, lista_usada = ejecutar_monitoreo_silencioso()
-                    enviar_mensaje_telegram(f"✅ *Escaneo Terminado.*\n✨ Alertas procesadas por IA: `{total}`")
+                    enviar_mensaje_telegram(f"✅ *Escaneo Terminado.*\n✨ Alertas enviadas: `{total}`")
                 elif texto_comando == "/modo":
                     msg_modo = f"⚙️ Modo actual: `{MODO_LISTA}`\n\n👉 `/set_auto` | `/set_lista1` | `/set_lista2`"
                     enviar_mensaje_telegram(msg_modo)
@@ -293,7 +250,7 @@ def iniciar_interfaz_bot():
                     enviar_mensaje_telegram(msg_kw)
                 elif texto_comando == "/limpiar":
                     if os.path.exists(ARCHIVO_HISTORIAL): os.remove(ARCHIVO_HISTORIAL)
-                    enviar_mensaje_telegram("🗑️ *Historial limpio.* Listo para re-analizar portadas.")
+                    enviar_mensaje_telegram("🗑️ *Historial limpio.* Listo para procesar portadas.")
         except: time.sleep(2)
 
 # ==============================================================================
@@ -301,7 +258,7 @@ def iniciar_interfaz_bot():
 # ==============================================================================
 web_app = Flask('')
 @web_app.route('/')
-def home(): return "Bot de Monitoreo con IA Inteligente 24/7"
+def home(): return "Bot de Monitoreo Activo 24/7"
 
 if __name__ == "__main__":
     threading.Thread(target=iniciar_interfaz_bot, daemon=True).start()
