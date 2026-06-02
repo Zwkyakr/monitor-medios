@@ -162,9 +162,17 @@ def analizar_nota_con_ia(titulo, resumen):
         if response.status_code == 200:
             resultado = response.json()
             return resultado['candidates'][0]['content']['parts'][0]['text']
-        return f"⚠️ No se pudo generar análisis de IA (Error del servidor de Google)."
-    except:
-        return f"⚠️ Error de conexión con la IA."
+        
+        # --- BLOQUE DE DIAGNÓSTICO INTEGRADO ---
+        try:
+            error_json = response.json()
+            mensaje_error = error_json.get("error", {}).get("message", "Sin detalle de mensaje.")
+            return f"⚠️ Error {response.status_code} de Google: *{mensaje_error}*"
+        except:
+            return f"⚠️ Error {response.status_code} de Google (No se pudo leer el JSON del error)."
+            
+    except Exception as e:
+        return f"⚠️ Error de conexión con la IA: {e}"
 
 def enviar_mensaje_telegram(texto):
     if not TELEGRAM_TOKEN: return
