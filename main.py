@@ -140,7 +140,7 @@ def evaluar_texto(texto, palabras_clave):
 
 def analizar_nota_con_ia(titulo, resumen):
     if not GEMINI_API_KEY:
-        return "⚠️ Error: GEMINI_API_KEY no configurada en las variables de entorno."
+        return "⚠️ Error: GEMINI_API_KEY no configurada."
         
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     
@@ -163,23 +163,30 @@ def analizar_nota_con_ia(titulo, resumen):
             resultado = response.json()
             return resultado['candidates'][0]['content']['parts'][0]['text']
         
-        # --- BLOQUE DE DIAGNÓSTICO INTEGRADO ---
         try:
             error_json = response.json()
-            mensaje_error = error_json.get("error", {}).get("message", "Sin detalle de mensaje.")
+            mensaje_error = error_json.get("error", {}).get("message", "Sin detalle.")
             return f"⚠️ Error {response.status_code} de Google: *{mensaje_error}*"
         except:
-            return f"⚠️ Error {response.status_code} de Google (No se pudo leer el JSON del error)."
+            return f"⚠️ Error {response.status_code} de Google."
             
-    except Exception as e:
-        return f"⚠️ Error de conexión con la IA: {e}"
+    except:
+        return f"⚠️ Error de conexión con la IA."
 
 def enviar_mensaje_telegram(texto):
-    if not TELEGRAM_TOKEN: return
+    if not TELEGRAM_TOKEN: return False
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": texto, "parse_mode": "Markdown", "disable_web_page_preview": True}
-    try: requests.post(url, json=payload, timeout=10)
-    except: pass
+    
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        # BÓVEDA DE RESPALDO: Si falla por formato Markdown, se envía como texto plano para no perder la nota
+        if response.status_code == 400:
+            payload["parse_mode"] = ""
+            response = requests.post(url, json=payload, timeout=10)
+        return response.status_code == 200
+    except:
+        return False
 
 def ejecutar_monitoreo_silencioso():
     medios_activos, nombre_lista = determinar_lista_medios()
@@ -220,8 +227,11 @@ def ejecutar_monitoreo_silencioso():
                         f"🕒 _Información copiada a las {timestamp_alerta}_\n"
                         f"🔗 [Abrir Nota Completa]({link})"
                     )
+                    
+                    # Intenta enviar y aplica una pausa para evitar Flood Control de Telegram
                     enviar_mensaje_telegram(mensaje)
                     alertas_enviadas += 1
+                    time.sleep(0.5) 
                 
                 historial.append(link)
         except: continue
