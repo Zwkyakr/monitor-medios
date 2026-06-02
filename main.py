@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+import calendar
 import unicodedata
 from datetime import datetime
 from flask import Flask
@@ -68,7 +69,7 @@ PARAMETROS = [
     "Carlos A. Carrillo", "Carrillo Puerto", "Catemaco", "Cazones de Herrera", 
     "Cerro Azul", "Chacaltianguis", "Chalma", "Chiconamel", "Chiconquiaco", 
     "Chicontepec", "Chinameca", "Chinampa de Gorostiza", "Chocamán", "Chontla", 
-    "Chumatlán", "Coacoatzintla", "Coahuitlán", "Coatepec", "Coatepec", "Coatzacoalcos", 
+    "Chumatlán", "Coacoatzintla", "Coahuitlán", "Coatepec", "Coatzacoalcos", 
     "Coatzintla", "Comapa", "Córdoba", "Cosamaloapan", "Cosautlán de Carvajal", 
     "Coscomatepec", "Cosoleacaque", "Cotaxtla", "Coxquihui", "Coyutla", "Cuichapa", 
     "Cuitláhuac", "El Higo", "Emiliano Zapata", "Espinal", "Filomeno Mata", "Fortín", 
@@ -164,6 +165,18 @@ def ejecutar_monitoreo_silencioso():
                 link = entrada.get("link")
                 if not link or link in historial: continue
                 
+                # --- NUEVO FILTRO CRÍTICO: ÚLTIMAS 24 HORAS ---
+                fecha_parsed = entrada.get("published_parsed") or entrada.get("updated_parsed")
+                if fecha_parsed:
+                    try:
+                        nota_epoch = calendar.timegm(fecha_parsed)
+                        ahora_epoch = time.time()
+                        # 86400 segundos = 24 horas exactas
+                        if (ahora_epoch - nota_epoch) > 86400:
+                            continue  # Si es más vieja de 24 horas, la ignora por completo
+                    except:
+                        pass
+                
                 titulo = entrada.get("title", "")
                 resumen = entrada.get("summary", "")
                 
@@ -188,7 +201,7 @@ def ejecutar_monitoreo_silencioso():
                     
                     enviar_mensaje_telegram(mensaje)
                     alertas_enviadas += 1
-                    time.sleep(0.3)  # Pausa sutil antispam para Telegram
+                    time.sleep(0.4)  # Pausa de protección antispam para Telegram
                 
                 historial.append(link)
         except: continue
@@ -203,7 +216,7 @@ def iniciar_interfaz_bot():
     global MODO_LISTA
     offset = 0
     time.sleep(5)  
-    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios Activo (Sin IA)*\nEscribe `/ayuda` para ver los comandos.")
+    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios Activo (Sin IA - 24H)*\nEscribe `/ayuda` para ver los comandos.")
 
     while True:
         try:
@@ -223,7 +236,7 @@ def iniciar_interfaz_bot():
                 if texto_comando == "/start" or texto_comando == "/ayuda":
                     menu = (
                         "📱 *Panel de Control*\n\n"
-                        "👉 `/escanear` : Escaneo ultra rápido de portales.\n"
+                        "👉 `/escanear` : Escaneo ultra rápido de portales (Últimas 24H).\n"
                         "👉 `/modo` : Cambiar listas de medios.\n"
                         "👉 `/parametros` : Ver criterios activos.\n"
                         "👉 `/limpiar` : Forzar re-análisis completo de portadas."
@@ -258,7 +271,7 @@ def iniciar_interfaz_bot():
 # ==============================================================================
 web_app = Flask('')
 @web_app.route('/')
-def home(): return "Bot de Monitoreo Activo 24/7"
+def home(): return "Bot de Monitoreo con Filtro de Tiempo Activo 24/7"
 
 if __name__ == "__main__":
     threading.Thread(target=iniciar_interfaz_bot, daemon=True).start()
