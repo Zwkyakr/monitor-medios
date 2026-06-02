@@ -1,4 +1,3 @@
-```python
 import feedparser
 import requests
 import json
@@ -47,7 +46,7 @@ LISTA_2 = [
 ]
 
 # ==============================================================================
-# 3. PARÁMETROS DE FILTRADO
+# 3. PARÁMETROS DE FILTRADO (Corregidos)
 # ==============================================================================
 PARAMETROS = [
     "Rocío Nahle", "Rocio Nahle", "Nahle",
@@ -72,7 +71,7 @@ PARAMETROS = [
     "MAÑANERA"
 ]
 
-ARCHIVO_HISTORIAL = "/opt/render/project/src/historial_noticias.json" if os.path.exists("/opt/render/project/src/") else "historial_noticias.json"
+ARCHIVO_HISTORIAL = "historial_noticias.json"
 
 # ==============================================================================
 # 4. FUNCIONES LÓGICAS
@@ -100,8 +99,11 @@ def cargar_historial():
 def guardar_historial(historial):
     if len(historial) > 1000:
         historial = historial[-1000:]
-    with open(ARCHIVO_HISTORIAL, "w", encoding="utf-8") as f:
-        json.dump(historial, f, ensure_ascii=False, indent=4)
+    try:
+        with open(ARCHIVO_HISTORIAL, "w", encoding="utf-8") as f:
+            json.dump(historial, f, ensure_ascii=False, indent=4)
+    except:
+        pass
 
 def evaluar_texto(texto, palabras_clave):
     texto_clean = texto.lower()
@@ -169,6 +171,7 @@ def ejecutar_monitoreo_silencioso():
 def iniciar_interfaz_bot():
     global MODO_LISTA
     offset = 0
+    time.sleep(5)  # Esperar a que el servidor web levante primero
     enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios En Línea (Nube)*\nEscribe `/ayuda` para ver los comandos.")
 
     while True:
@@ -235,11 +238,11 @@ def iniciar_interfaz_bot():
                         os.remove(ARCHIVO_HISTORIAL)
                     enviar_mensaje_telegram("🗑️ *Historial borrado.*")
                     
-        except Exception as e:
+        except:
             time.sleep(2)
 
 # ==============================================================================
-# 6. SERVIDOR WEB FALSO PARA RENDER
+# 6. SERVIDOR WEB PRINCIPAL (Mantiene vivo a Render)
 # ==============================================================================
 web_app = Flask('')
 
@@ -247,12 +250,10 @@ web_app = Flask('')
 def home():
     return "Bot de Monitoreo Activo 24/7"
 
-def correr_servidor_web():
+if __name__ == "__main__":
+    # 1. Arranca tu bot interactivo en un hilo secundario
+    threading.Thread(target=iniciar_interfaz_bot, daemon=True).start()
+    
+    # 2. Arranca la web en el hilo principal (Render se queda escuchando este puerto)
     puerto = int(os.environ.get("PORT", 8080))
     web_app.run(host='0.0.0.0', port=puerto)
-
-if __name__ == "__main__":
-    # Arranca la web falsa en segundo plano
-    threading.Thread(target=correr_servidor_web, daemon=True).start()
-    # Arranca tu bot interactivo normal
-    iniciar_interfaz_bot()
