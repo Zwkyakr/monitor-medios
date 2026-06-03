@@ -153,9 +153,7 @@ def evaluar_texto(texto, palabras_clave):
     return False, None
 
 def analizar_nota_con_ia(titulo, resumen):
-    if not GEMINI_API_KEY:
-        return "⚠️ Error: GEMINI_API_KEY no configurada en Render."
-        
+    if not GEMINI_API_KEY: return "⚠️ Error: GEMINI_API_KEY no configurada en Render."
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     
     prompt = (
@@ -170,12 +168,10 @@ def analizar_nota_con_ia(titulo, resumen):
     )
     
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    
     try:
         response = requests.post(url, json=payload, timeout=15)
         if response.status_code == 200:
-            resultado = response.json()
-            return resultado['candidates'][0]['content']['parts'][0]['text']
+            return response.json()['candidates'][0]['content']['parts'][0]['text']
         try:
             error_json = response.json()
             return f"⚠️ Error {response.status_code}: *{error_json.get('error', {}).get('message', 'Sin detalle.')}*"
@@ -234,22 +230,24 @@ def ejecutar_busqueda_prioritaria(tema_objetivo):
         except: continue
     return coincidencias
 
-# --- MONITOREO SILENCIOSO ADAPTATIVO (CON / SIN IA) ---
-def ejecutar_monitoreo_silencioso(usar_ia=False):
+# --- MONITOREO ADAPTATIVO CON VENTANA DE TIEMPO DINÁMICA ---
+def ejecutar_monitoreo_silencioso(usar_ia=False, horas_atras=None):
     medios_activos, nombre_lista = determinar_lista_medios()
     historial = cargar_historial()
     noticias_manuales = cargar_noticias_manuales()
     alertas_enviadas = 0
     
-    ahora_utc = datetime.utcnow()
-    ahora_veracruz = ahora_utc - timedelta(hours=6)
-    
-    if ahora_veracruz.hour >= 22:
-        fecha_10pm_veracruz = ahora_veracruz.replace(hour=22, minute=0, second=0, microsecond=0)
+    # Determinación del umbral de tiempo (Fijo o por horas atrás)
+    if horas_atras:
+        epoch_threshold = calendar.timegm(time.gmtime()) - (horas_atras * 3600)
     else:
-        fecha_10pm_veracruz = (ahora_veracruz - timedelta(days=1)).replace(hour=22, minute=0, second=0, microsecond=0)
-        
-    epoch_10pm_threshold = calendar.timegm((fecha_10pm_veracruz + timedelta(hours=6)).utctimetuple())
+        ahora_utc = datetime.utcnow()
+        ahora_veracruz = ahora_utc - timedelta(hours=6)
+        if ahora_veracruz.hour >= 22:
+            fecha_10pm_veracruz = ahora_veracruz.replace(hour=22, minute=0, second=0, microsecond=0)
+        else:
+            fecha_10pm_veracruz = (ahora_veracruz - timedelta(days=1)).replace(hour=22, minute=0, second=0, microsecond=0)
+        epoch_threshold = calendar.timegm((fecha_10pm_veracruz + timedelta(hours=6)).utctimetuple())
 
     for url_rss in medios_activos:
         try:
@@ -257,6 +255,8 @@ def ejecutar_monitoreo_silencioso(usar_ia=False):
             nombre_medio = feed.feed.get("title", url_rss.split("//")[-1].split("/")[0])
             for entrada in feed.entries:
                 link = entrada.get("link")
+                
+                # PROTECCIÓN ABSOLUTA ANTI-REPETICIÓN
                 if not link or link in historial: continue
                 
                 titulo = entrada.get("title", "")
@@ -270,7 +270,7 @@ def ejecutar_monitoreo_silencioso(usar_ia=False):
                 if fecha_parsed:
                     try:
                         nota_epoch = calendar.timegm(fecha_parsed)
-                        if nota_epoch < epoch_10pm_threshold: continue 
+                        if nota_epoch < epoch_threshold: continue 
                     except: pass
                 
                 hizo_match, kw_detectada = evaluar_texto(titulo, PARAMETROS)
@@ -280,7 +280,6 @@ def ejecutar_monitoreo_silencioso(usar_ia=False):
                     ahora = datetime.now()
                     timestamp_alerta = ahora.strftime("%H:%M del %d/%m/%Y")
                     
-                    # Estructura del mensaje dinámico dependiendo de la selección
                     if usar_ia:
                         analisis_ia = analizar_nota_con_ia(titulo, resumen)
                         mensaje = (
@@ -325,7 +324,7 @@ def iniciar_interfaz_bot():
     global MODO_LISTA
     offset = 0
     time.sleep(5)  
-    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios Híbrido Activo*\nFiltro temporal estricto: posterior a las 10:00 PM.")
+    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios Dinámico Activo*")
 
     while True:
         try:
@@ -345,11 +344,10 @@ def iniciar_interfaz_bot():
                 if texto_comando == "/start" or texto_comando == "/ayuda":
                     menu = (
                         "📱 *Panel de Control Híbrido*\n\n"
-                        "👉 `/escanear` : Rastreo rápido estándar (AHORRO DE TOKENS - SIN IA).\n"
-                        "👉 `/escanearIA` : Rastreo profundo exhaustivo (CON ANALÍTICA DE IA PRO).\n"
-                        "👉 `/buscar IDEA` : Localizar comunicados por conceptos cruzados (Con IA).\n"
-                        "👉 `/ayer BLOQUE_TITULOS` : Cargar notas capturadas a mano para omitirlas.\n"
-                        "👉 `/modo` : Configurar listas de portales.\n"
+                        "👉 `/escanear` o `/escanear X` : Rastreo estándar (Sin IA).\n"
+                        "👉 `/escanearIA` o `/escanearIA X` : Rastreo con análisis de IA Pro.\n"
+                        "👉 `/buscar IDEA` : Localizar comunicados por conceptos cruzados.\n"
+                        "👉 `/ayer BLOQUE_TITULOS` : Omitir notas capturadas hoy.\n"
                         "👉 `/limpiar` : Vaciar historial de enlaces."
                     )
                     enviar_mensaje_telegram(menu)
@@ -359,38 +357,49 @@ def iniciar_interfaz_bot():
                     if contenido:
                         lineas = contenido.split("\n")
                         nuevas_notas = [normalizar_texto(l.strip()) for l in lineas if l.strip()]
-                        
                         existentes = cargar_noticias_manuales()
                         existentes.extend(nuevas_notas)
                         existentes = list(set(existentes))
                         guardar_noticias_manuales(existentes)
-                        
-                        enviar_mensaje_telegram(f"✅ Registradas `{len(nuevas_notas)}` notas en el filtro. Omitidas para siguientes escaneos.")
+                        enviar_mensaje_telegram(f"✅ Registradas `{len(nuevas_notas)}` notas en el filtro.")
                     else:
                         guardar_noticias_manuales([])
-                        enviar_mensaje_telegram("🗑️ Filtro de notas manuales vaciado. Listo para recibir una nueva lista.")
+                        enviar_mensaje_telegram("🗑️ Filtro de notas manuales vaciado.")
                         
                 elif texto_comando.startswith("/buscar ") or texto_comando.startswith("/investigar "):
                     partes = texto_comando.split(" ", 1)
                     if len(partes) > 1:
                         tema_a_rastrear = partes[1].strip()
-                        enviar_mensaje_telegram(f"🔍 _Buscando coincidencias conceptuales para:_ `{tema_a_rastrear}`...")
+                        enviar_mensaje_telegram(f"🔍 _Buscando coincidencias para:_ `{tema_a_rastrear}`...")
                         encontrados = ejecutar_busqueda_prioritaria(tema_a_rastrear)
-                        enviar_mensaje_telegram(f"✅ *Búsqueda matricial terminada.*\n✨ Notas localizadas: `{encontrados}`")
-                    else:
-                        enviar_mensaje_telegram("⚠️ Especifica la idea central. Ejemplo: `/buscar FGE Tlapacoyan detencion`")
+                        enviar_mensaje_telegram(f"✅ *Búsqueda terminada. Hallados:* `{encontrados}`")
                         
-                # --- CONTROL DE ESCANEO SIN IA ---
-                elif texto_comando == "/escanear":
-                    enviar_mensaje_telegram("🔍 _Ejecutando escaneo veloz estándar (Sin IA / Modo Económico)... Por favor espera._")
-                    total, lista_usada = ejecutar_monitoreo_silencioso(usar_ia=False)
-                    enviar_mensaje_telegram(f"✅ *Escaneo Terminado.*\n✨ Alertas enviadas: `{total}`")
+                # --- PARSEO INTELIGENTE DE COMANDOS DE ESCANEO (FIJO O POR HORAS) ---
+                elif texto_comando.startswith("/escanearIA"):
+                    arg = texto_comando.replace("/escanearIA", "").strip()
+                    num = re.findall(r'\d+', arg)
+                    horas = int(num[0]) if num else None
                     
-                # --- CONTROL DE ESCANEO CON IA ---
-                elif texto_comando == "/escanearIA":
-                    enviar_mensaje_telegram("🔍 _Ejecutando escaneo cognitivo profundo (Con IA Pro)... Por favor espera._")
-                    total, lista_usada = ejecutar_monitoreo_silencioso(usar_ia=True)
-                    enviar_mensaje_telegram(f"✅ *Escaneo Teminado.*\n✨ Alertas procesadas por IA Pro: `{total}`")
+                    if horas:
+                        enviar_mensaje_telegram(f"🔍 _Rastreando portales (Últimas {horas} horas con IA)... Por favor espera._")
+                        total, _ = ejecutar_monitoreo_silencioso(usar_ia=True, horas_atras=horas)
+                    else:
+                        enviar_mensaje_telegram("🔍 _Rastreando portales (Corte desde 10:00 PM con IA)... Por favor espera._")
+                        total, _ = ejecutar_monitoreo_silencioso(usar_ia=True)
+                    enviar_mensaje_telegram(f"✅ *Escaneo Terminado.*\n✨ Alertas procesadas por IA Pro: `{total}`")
+                    
+                elif texto_comando.startswith("/escanear"):
+                    arg = texto_comando.replace("/escanear", "").strip()
+                    num = re.findall(r'\d+', arg)
+                    horas = int(num[0]) if num else None
+                    
+                    if horas:
+                        enviar_mensaje_telegram(f"🔍 _Rastreando portales (Últimas {horas} horas - Sin IA)... Por favor espera._")
+                        total, _ = ejecutar_monitoreo_silencioso(usar_ia=False, horas_atras=horas)
+                    else:
+                        enviar_mensaje_telegram("🔍 _Rastreando portales (Corte desde 10:00 PM - Sin IA)... Por favor espera._")
+                        total, _ = ejecutar_monitoreo_silencioso(usar_ia=False)
+                    enviar_mensaje_telegram(f"✅ *Escaneo Terminado.*\n✨ Alertas enviadas: `{total}`")
                     
                 elif texto_comando == "/modo":
                     msg_modo = f"⚙️ Modo actual: `{MODO_LISTA}`\n\n👉 `/set_auto` | `/set_lista1` | `/set_lista2`"
@@ -406,7 +415,7 @@ def iniciar_interfaz_bot():
                     enviar_mensaje_telegram("📌 Modo: `FORZAR LISTA 2`")
                 elif texto_comando == "/limpiar":
                     if os.path.exists(ARCHIVO_HISTORIAL): os.remove(ARCHIVO_HISTORIAL)
-                    enviar_mensaje_telegram("🗑️ *Historial limpio.* Listo para re-analizar portadas.")
+                    enviar_mensaje_telegram("🗑️ *Historial de enlaces limpio.*")
         except: time.sleep(2)
 
 # ==============================================================================
@@ -414,7 +423,7 @@ def iniciar_interfaz_bot():
 # ==============================================================================
 web_app = Flask('')
 @web_app.route('/')
-def home(): return "Bot de Monitoreo Pro Operativo Dual 24/7"
+def home(): return "Bot de Monitoreo Pro Dinámico Operando 24/7"
 
 if __name__ == "__main__":
     threading.Thread(target=iniciar_interfaz_bot, daemon=True).start()
