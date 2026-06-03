@@ -103,6 +103,7 @@ PARAMETROS = [
 ]
 
 ARCHIVO_HISTORIAL = "historial_noticias.json"
+ARCHIVO_MANUALES = "noticias_manuales.json"
 
 # ==============================================================================
 # 4. FUNCIONES LÓGICAS Y CONEXIÓN CON IA
@@ -130,12 +131,16 @@ def guardar_historial(historial):
     except: pass
 
 def cargar_noticias_manuales():
-    if os.path.exists("noticias_manuales.txt"):
+    if os.path.exists(ARCHIVO_MANUALES):
         try:
-            with open("noticias_manuales.txt", "r", encoding="utf-8") as f:
-                return [normalizar_texto(linea.strip()) for linea in f if linea.strip()]
+            with open(ARCHIVO_MANUALES, "r", encoding="utf-8") as f: return json.load(f)
         except: return []
     return []
+
+def guardar_noticias_manuales(lista):
+    try:
+        with open(ARCHIVO_MANUALES, "w", encoding="utf-8") as f: json.dump(lista, f, ensure_ascii=False, indent=4)
+    except: pass
 
 def evaluar_texto(texto, palabras_clave):
     texto_norm = normalizar_texto(texto)
@@ -189,17 +194,10 @@ def enviar_mensaje_telegram(texto):
         return response.status_code == 200
     except: return False
 
-# --- SECCIÓN DE INVESTIGACIÓN CON DESCOMPOSICIÓN DE PALABRAS CLAVE ---
 def ejecutar_busqueda_prioritaria(tema_objetivo):
-    """Descompone la idea central en palabras clave independientes para buscar en las portadas."""
     medios_activos, _ = determinar_lista_medios()
-    
-    # Extrae términos core ignorando conectores cortos (menores a 3 letras como 'de', 'la', 'en')
     palabras_clave = [normalizar_texto(w) for w in tema_objetivo.split() if len(w) >= 3]
-    
-    if not palabras_clave:
-        return 0
-        
+    if not palabras_clave: return 0
     coincidencias = 0
     
     for url_rss in medios_activos:
@@ -209,10 +207,8 @@ def ejecutar_busqueda_prioritaria(tema_objetivo):
             for entrada in feed.entries:
                 titulo = entrada.get("title", "")
                 resumen = entrada.get("summary", "")
-                
                 texto_analisis_norm = normalizar_texto(titulo + " " + resumen)
                 
-                # REGLA CONCEPTUAL: Todas las palabras de la idea deben existir en la nota, sin importar el orden
                 if all(palabra in texto_analisis_norm for palabra in palabras_clave):
                     link = entrada.get("link", "#")
                     analisis_ia = analizar_nota_con_ia(titulo, resumen)
@@ -238,13 +234,13 @@ def ejecutar_busqueda_prioritaria(tema_objetivo):
         except: continue
     return coincidencias
 
-def ejecutar_monitoreo_silencioso():
+# --- MONITOREO SILENCIOSO ADAPTATIVO (CON / SIN IA) ---
+def ejecutar_monitoreo_silencioso(usar_ia=False):
     medios_activos, nombre_lista = determinar_lista_medios()
     historial = cargar_historial()
     noticias_manuales = cargar_noticias_manuales()
     alertas_enviadas = 0
     
-    # Ventana temporal estricta: 10:00 PM de Veracruz del día anterior
     ahora_utc = datetime.utcnow()
     ahora_veracruz = ahora_utc - timedelta(hours=6)
     
@@ -267,41 +263,51 @@ def ejecutar_monitoreo_silencioso():
                 resumen = entrada.get("summary", "")
                 titulo_norm = normalizar_texto(titulo)
                 
-                # Filtro de exclusión manual
                 if any(linea_manual in titulo_norm for linea_manual in noticias_manuales if len(linea_manual) > 8):
                     continue
                 
-                # Filtro de tiempo estricto (Posterior a las 10:00 PM del corte anterior)
                 fecha_parsed = entrada.get("published_parsed") or entrada.get("updated_parsed")
                 if fecha_parsed:
                     try:
                         nota_epoch = calendar.timegm(fecha_parsed)
-                        if nota_epoch < epoch_10pm_threshold:
-                            continue 
+                        if nota_epoch < epoch_10pm_threshold: continue 
                     except: pass
                 
                 hizo_match, kw_detectada = evaluar_texto(titulo, PARAMETROS)
-                if not hizo_match:
-                    hizo_match, kw_detectada = evaluar_texto(resumen, PARAMETROS)
+                if not hizo_match: hizo_match, kw_detectada = evaluar_texto(resumen, PARAMETROS)
                 
                 if hizo_match:
-                    analisis_ia = analizar_nota_con_ia(titulo, resumen)
                     ahora = datetime.now()
                     timestamp_alerta = ahora.strftime("%H:%M del %d/%m/%Y")
                     
-                    mensaje = (
-                        f"🚨 *ALERTA DE MONITOREO CRÍTICO*\n"
-                        f"━━━━━━━━━━━━━━━━━━━\n"
-                        f"📌 *Medio:* {nombre_medio}\n"
-                        f"🎯 *Match Origen:* `{kw_detectada}`\n"
-                        f"📝 *Título:* {titulo}\n"
-                        f"━━━━━━━━━━━━━━━━━━━\n"
-                        f"🧠 *ANÁLISIS DE INTELIGENCIA (IA PRO):*\n"
-                        f"{analisis_ia}\n"
-                        f"━━━━━━━━━━━━━━━━━━━\n"
-                        f"🕒 _Información copiada a las {timestamp_alerta}_\n"
-                        f"🔗 [Abrir Nota Completa]({link})"
-                    )
+                    # Estructura del mensaje dinámico dependiendo de la selección
+                    if usar_ia:
+                        analisis_ia = analizar_nota_con_ia(titulo, resumen)
+                        mensaje = (
+                            f"🚨 *ALERTA DE MONITOREO CRÍTICO (CON IA PRO)*\n"
+                            f"━━━━━━━━━━━━━━━━━━━\n"
+                            f"📌 *Medio:* {nombre_medio}\n"
+                            f"🎯 *Match Origen:* `{kw_detectada}`\n"
+                            f"📝 *Título:* {titulo}\n"
+                            f"━━━━━━━━━━━━━━━━━━━\n"
+                            f"🧠 *ANÁLISIS DE INTELIGENCIA (IA PRO):*\n"
+                            f"{analisis_ia}\n"
+                            f"━━━━━━━━━━━━━━━━━━━\n"
+                            f"🕒 _Información copiada a las {timestamp_alerta}_\n"
+                            f"🔗 [Abrir Nota Completa]({link})"
+                        )
+                    else:
+                        mensaje = (
+                            f"🚨 *ALERTA DE MONITOREO CRÍTICO (ESTÁNDAR)*\n"
+                            f"━━━━━━━━━━━━━━━━━━━\n"
+                            f"📌 *Medio:* {nombre_medio}\n"
+                            f"🎯 *Match Origen:* `{kw_detectada}`\n"
+                            f"📝 *Título:* {titulo}\n"
+                            f"━━━━━━━━━━━━━━━━━━━\n"
+                            f"🕒 _Información copiada a las {timestamp_alerta}_\n"
+                            f"🔗 [Abrir Nota Completa]({link})"
+                        )
+                        
                     enviar_mensaje_telegram(mensaje)
                     alertas_enviadas += 1
                     time.sleep(0.4)
@@ -319,7 +325,7 @@ def iniciar_interfaz_bot():
     global MODO_LISTA
     offset = 0
     time.sleep(5)  
-    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios con IA Pro Activo*\nFiltro temporal estricto: posterior a las 10:00 PM.")
+    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios Híbrido Activo*\nFiltro temporal estricto: posterior a las 10:00 PM.")
 
     while True:
         try:
@@ -338,29 +344,54 @@ def iniciar_interfaz_bot():
                 
                 if texto_comando == "/start" or texto_comando == "/ayuda":
                     menu = (
-                        "📱 *Panel de Control Inteligente*\n\n"
-                        "👉 `/escanear` : Rastreo general regular (> 10:00 PM).\n"
-                        "👉 `/buscar IDEA CENTRAL` : Rastreo por conceptos cruzados (ignora límites de tiempo/historial).\n"
+                        "📱 *Panel de Control Híbrido*\n\n"
+                        "👉 `/escanear` : Rastreo rápido estándar (AHORRO DE TOKENS - SIN IA).\n"
+                        "👉 `/escanearIA` : Rastreo profundo exhaustivo (CON ANALÍTICA DE IA PRO).\n"
+                        "👉 `/buscar IDEA` : Localizar comunicados por conceptos cruzados (Con IA).\n"
+                        "👉 `/ayer BLOQUE_TITULOS` : Cargar notas capturadas a mano para omitirlas.\n"
                         "👉 `/modo` : Configurar listas de portales.\n"
-                        "👉 `/parametros` : Ver palabras clave operativas.\n"
                         "👉 `/limpiar` : Vaciar historial de enlaces."
                     )
                     enviar_mensaje_telegram(menu)
                     
+                elif texto_comando.startswith("/ayer"):
+                    contenido = re.sub(r'^/ayer[\s\n]*', '', texto_comando).strip()
+                    if contenido:
+                        lineas = contenido.split("\n")
+                        nuevas_notas = [normalizar_texto(l.strip()) for l in lineas if l.strip()]
+                        
+                        existentes = cargar_noticias_manuales()
+                        existentes.extend(nuevas_notas)
+                        existentes = list(set(existentes))
+                        guardar_noticias_manuales(existentes)
+                        
+                        enviar_mensaje_telegram(f"✅ Registradas `{len(nuevas_notas)}` notas en el filtro. Omitidas para siguientes escaneos.")
+                    else:
+                        guardar_noticias_manuales([])
+                        enviar_mensaje_telegram("🗑️ Filtro de notas manuales vaciado. Listo para recibir una nueva lista.")
+                        
                 elif texto_comando.startswith("/buscar ") or texto_comando.startswith("/investigar "):
                     partes = texto_comando.split(" ", 1)
                     if len(partes) > 1:
                         tema_a_rastrear = partes[1].strip()
                         enviar_mensaje_telegram(f"🔍 _Buscando coincidencias conceptuales para:_ `{tema_a_rastrear}`...")
                         encontrados = ejecutar_busqueda_prioritaria(tema_a_rastrear)
-                        enviar_mensaje_telegram(f"✅ *Búsqueda matricial terminada.*\n✨ Notas localizadas por idea central: `{encontrados}`")
+                        enviar_mensaje_telegram(f"✅ *Búsqueda matricial terminada.*\n✨ Notas localizadas: `{encontrados}`")
                     else:
-                        enviar_mensaje_telegram("⚠️ Por favor especifica la idea central. Ejemplo: `/buscar FGE Tlapacoyan detencion`")
+                        enviar_mensaje_telegram("⚠️ Especifica la idea central. Ejemplo: `/buscar FGE Tlapacoyan detencion`")
                         
+                # --- CONTROL DE ESCANEO SIN IA ---
                 elif texto_comando == "/escanear":
-                    enviar_mensaje_telegram("🔍 _Procesando portales y generando análisis cognitivo de IA... Por favor espera._")
-                    total, lista_usada = ejecutar_monitoreo_silencioso()
-                    enviar_mensaje_telegram(f"✅ *Escaneo Terminado.*\n✨ Alertas procesadas por IA: `{total}`")
+                    enviar_mensaje_telegram("🔍 _Ejecutando escaneo veloz estándar (Sin IA / Modo Económico)... Por favor espera._")
+                    total, lista_usada = ejecutar_monitoreo_silencioso(usar_ia=False)
+                    enviar_mensaje_telegram(f"✅ *Escaneo Terminado.*\n✨ Alertas enviadas: `{total}`")
+                    
+                # --- CONTROL DE ESCANEO CON IA ---
+                elif texto_comando == "/escanearIA":
+                    enviar_mensaje_telegram("🔍 _Ejecutando escaneo cognitivo profundo (Con IA Pro)... Por favor espera._")
+                    total, lista_usada = ejecutar_monitoreo_silencioso(usar_ia=True)
+                    enviar_mensaje_telegram(f"✅ *Escaneo Teminado.*\n✨ Alertas procesadas por IA Pro: `{total}`")
+                    
                 elif texto_comando == "/modo":
                     msg_modo = f"⚙️ Modo actual: `{MODO_LISTA}`\n\n👉 `/set_auto` | `/set_lista1` | `/set_lista2`"
                     enviar_mensaje_telegram(msg_modo)
@@ -373,9 +404,6 @@ def iniciar_interfaz_bot():
                 elif texto_comando == "/set_lista2":
                     MODO_LISTA = "LISTA_2"
                     enviar_mensaje_telegram("📌 Modo: `FORZAR LISTA 2`")
-                elif texto_comando == "/parametros":
-                    msg_kw = f"🎯 *Criterios:* Gobernadora, Secretarías Estatales y los 212 Municipios de Veracruz activos."
-                    enviar_mensaje_telegram(msg_kw)
                 elif texto_comando == "/limpiar":
                     if os.path.exists(ARCHIVO_HISTORIAL): os.remove(ARCHIVO_HISTORIAL)
                     enviar_mensaje_telegram("🗑️ *Historial limpio.* Listo para re-analizar portadas.")
@@ -386,7 +414,7 @@ def iniciar_interfaz_bot():
 # ==============================================================================
 web_app = Flask('')
 @web_app.route('/')
-def home(): return "Bot de Monitoreo Pro Operativo 24/7"
+def home(): return "Bot de Monitoreo Pro Operativo Dual 24/7"
 
 if __name__ == "__main__":
     threading.Thread(target=iniciar_interfaz_bot, daemon=True).start()
