@@ -165,15 +165,15 @@ def ejecutar_monitoreo_silencioso():
                 link = entrada.get("link")
                 if not link or link in historial: continue
                 
-                # --- NUEVO FILTRO CRÍTICO: ÚLTIMAS 24 HORAS ---
+                # --- FILTRO CRÍTICO ACTUALIZADO: ÚLTIMAS 12 HORAS ---
                 fecha_parsed = entrada.get("published_parsed") or entrada.get("updated_parsed")
                 if fecha_parsed:
                     try:
                         nota_epoch = calendar.timegm(fecha_parsed)
                         ahora_epoch = time.time()
-                        # 86400 segundos = 24 horas exactas
-                        if (ahora_epoch - nota_epoch) > 86400:
-                            continue  # Si es más vieja de 24 horas, la ignora por completo
+                        # 43200 segundos = 12 horas exactas
+                        if (ahora_epoch - nota_epoch) > 43200:
+                            continue  # Si es más vieja de 12 horas, la ignora por completo
                     except:
                         pass
                 
@@ -216,7 +216,7 @@ def iniciar_interfaz_bot():
     global MODO_LISTA
     offset = 0
     time.sleep(5)  
-    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios Activo (Sin IA - 24H)*\nEscribe `/ayuda` para ver los comandos.")
+    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios Activo (Sin IA - 12H)*\nEscribe `/ayuda` para ver los comandos.")
 
     while True:
         try:
@@ -236,7 +236,7 @@ def iniciar_interfaz_bot():
                 if texto_comando == "/start" or texto_comando == "/ayuda":
                     menu = (
                         "📱 *Panel de Control*\n\n"
-                        "👉 `/escanear` : Escaneo ultra rápido de portales (Últimas 24H).\n"
+                        "👉 `/escanear` : Escaneo ultra rápido de portales (Últimas 12H).\n"
                         "👉 `/modo` : Cambiar listas de medios.\n"
                         "👉 `/parametros` : Ver criterios activos.\n"
                         "👉 `/limpiar` : Forzar re-análisis completo de portadas."
@@ -245,7 +245,7 @@ def iniciar_interfaz_bot():
                 elif texto_comando == "/escanear":
                     enviar_mensaje_telegram("🔍 _Escaneando portales de noticias... Por favor espera._")
                     total, lista_usada = ejecutar_monitoreo_silencioso()
-                    enviar_mensaje_telegram(f"✅ *Escaneo Terminado.*\n✨ Alertas enviadas: `{total}`")
+                    enviar_mensaje_telegram(f"✅ *Escaneo Terminado.*\n✨ Alertas enviadas en el rango de 12H: `{total}`")
                 elif texto_comando == "/modo":
                     msg_modo = f"⚙️ Modo actual: `{MODO_LISTA}`\n\n👉 `/set_auto` | `/set_lista1` | `/set_lista2`"
                     enviar_mensaje_telegram(msg_modo)
@@ -271,7 +271,7 @@ def iniciar_interfaz_bot():
 # ==============================================================================
 web_app = Flask('')
 @web_app.route('/')
-def home(): return "Bot de Monitoreo con Filtro de Tiempo Activo 24/7"
+def home(): return "Bot de Monitoreo con Filtro de Tiempo Activo 24/7 (12H Match)"
 
 if __name__ == "__main__":
     threading.Thread(target=iniciar_interfaz_bot, daemon=True).start()
