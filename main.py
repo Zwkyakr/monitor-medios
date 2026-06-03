@@ -6,7 +6,7 @@ import re
 import time
 import calendar
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask
 import threading
 
@@ -15,6 +15,7 @@ import threading
 # ==============================================================================
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = int(os.environ.get("CHAT_ID", "1468116225"))
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 MODO_LISTA = "AUTO" 
 
@@ -104,7 +105,7 @@ PARAMETROS = [
 ARCHIVO_HISTORIAL = "historial_noticias.json"
 
 # ==============================================================================
-# 4. FUNCIONES LÓGICAS
+# 4. FUNCIONES LÓGICAS Y CONEXIÓN CON IA
 # ==============================================================================
 def normalizar_texto(texto):
     if not texto: return ""
@@ -128,6 +129,14 @@ def guardar_historial(historial):
         with open(ARCHIVO_HISTORIAL, "w", encoding="utf-8") as f: json.dump(historial, f, ensure_ascii=False, indent=4)
     except: pass
 
+def cargar_noticias_manuales():
+    if os.path.exists("noticias_manuales.txt"):
+        try:
+            with open("noticias_manuales.txt", "r", encoding="utf-8") as f:
+                return [normalizar_texto(linea.strip()) for linea in f if linea.strip()]
+        except: return []
+    return []
+
 def evaluar_texto(texto, palabras_clave):
     texto_norm = normalizar_texto(texto)
     for kw in palabras_clave:
@@ -138,25 +147,114 @@ def evaluar_texto(texto, palabras_clave):
             if kw_norm in texto_norm: return True, kw
     return False, None
 
+def analizar_nota_con_ia(titulo, resumen):
+    if not GEMINI_API_KEY:
+        return "⚠️ Error: GEMINI_API_KEY no configurada en Render."
+        
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    
+    prompt = (
+        f"Eres un analista de comunicación política experto en el estado de Veracruz. "
+        f"Analiza la siguiente nota informativa (Título y/o Resumen) y genera estrictamente lo siguiente:\n"
+        f"1) Un resumen ejecutivo muy conciso en exactamente 3 viñetas cortas.\n"
+        f"2) Sentimiento de la nota hacia la administración pública (Positivo, Neutral o Negativo).\n"
+        f"3) Nivel de Riesgo Político o Potencial Crisis para el Gobierno del Estado (Bajo, Medio o Alto) con una breve línea del porqué.\n\n"
+        f"Título: {titulo}\n"
+        f"Contexto: {resumen}\n\n"
+        f"Responde usando formato Markdown limpio. Sé directo, institucional y preciso."
+    )
+    
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    
+    try:
+        response = requests.post(url, json=payload, timeout=15)
+        if response.status_code == 200:
+            resultado = response.json()
+            return resultado['candidates'][0]['content']['parts'][0]['text']
+        try:
+            error_json = response.json()
+            return f"⚠️ Error {response.status_code}: *{error_json.get('error', {}).get('message', 'Sin detalle.')}*"
+        except: return f"⚠️ Error {response.status_code} de Google."
+    except: return f"⚠️ Error de conexión con la IA."
+
 def enviar_mensaje_telegram(texto):
     if not TELEGRAM_TOKEN: return False
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": texto, "parse_mode": "Markdown", "disable_web_page_preview": True}
-    
     try:
         response = requests.post(url, json=payload, timeout=10)
         if response.status_code == 400:
             payload["parse_mode"] = ""
             response = requests.post(url, json=payload, timeout=10)
         return response.status_code == 200
-    except:
-        return False
+    except: return False
+
+# --- SECCIÓN DE INVESTIGACIÓN CON DESCOMPOSICIÓN DE PALABRAS CLAVE ---
+def ejecutar_busqueda_prioritaria(tema_objetivo):
+    """Descompone la idea central en palabras clave independientes para buscar en las portadas."""
+    medios_activos, _ = determinar_lista_medios()
+    
+    # Extrae términos core ignorando conectores cortos (menores a 3 letras como 'de', 'la', 'en')
+    palabras_clave = [normalizar_texto(w) for w in tema_objetivo.split() if len(w) >= 3]
+    
+    if not palabras_clave:
+        return 0
+        
+    coincidencias = 0
+    
+    for url_rss in medios_activos:
+        try:
+            feed = feedparser.parse(url_rss)
+            nombre_medio = feed.feed.get("title", url_rss.split("//")[-1].split("/")[0])
+            for entrada in feed.entries:
+                titulo = entrada.get("title", "")
+                resumen = entrada.get("summary", "")
+                
+                texto_analisis_norm = normalizar_texto(titulo + " " + resumen)
+                
+                # REGLA CONCEPTUAL: Todas las palabras de la idea deben existir en la nota, sin importar el orden
+                if all(palabra in texto_analisis_norm for palabra in palabras_clave):
+                    link = entrada.get("link", "#")
+                    analisis_ia = analizar_nota_con_ia(titulo, resumen)
+                    ahora = datetime.now()
+                    timestamp_alerta = ahora.strftime("%H:%M del %d/%m/%Y")
+                    
+                    mensaje = (
+                        f"🔥 *HALLAZGO PRIORITARIO / COMUNICADO*\n"
+                        f"━━━━━━━━━━━━━━━━━━━\n"
+                        f"📌 *Medio:* {nombre_medio}\n"
+                        f"🎯 *Idea Central Investigada:* `{tema_objetivo}`\n"
+                        f"📝 *Título:* {titulo}\n"
+                        f"━━━━━━━━━━━━━━━━━━━\n"
+                        f"🧠 *ANÁLISIS DE INTELIGENCIA (IA PRO):*\n"
+                        f"{analisis_ia}\n"
+                        f"━━━━━━━━━━━━━━━━━━━\n"
+                        f"🕒 _Rastreado de forma urgente a las {timestamp_alerta}_\n"
+                        f"🔗 [Abrir Nota del Comunicado]({link})"
+                    )
+                    enviar_mensaje_telegram(mensaje)
+                    coincidencias += 1
+                    time.sleep(0.5)
+        except: continue
+    return coincidencias
 
 def ejecutar_monitoreo_silencioso():
     medios_activos, nombre_lista = determinar_lista_medios()
     historial = cargar_historial()
+    noticias_manuales = cargar_noticias_manuales()
     alertas_enviadas = 0
     
+    # Ventana temporal estricta: 10:00 PM de Veracruz del día anterior
+    ahora_utc = datetime.utcnow()
+    ahora_veracruz = ahora_utc - timedelta(hours=6)
+    
+    if ahora_veracruz.hour >= 22:
+        fecha_10pm_veracruz = ahora_veracruz.replace(hour=22, minute=0, second=0, microsecond=0)
+    else:
+        fecha_10pm_veracruz = (ahora_veracruz - timedelta(days=1)).replace(hour=22, minute=0, second=0, microsecond=0)
+        
+    epoch_10pm_threshold = calendar.timegm((fecha_10pm_veracruz + timedelta(hours=6)).utctimetuple())
+
     for url_rss in medios_activos:
         try:
             feed = feedparser.parse(url_rss)
@@ -165,26 +263,29 @@ def ejecutar_monitoreo_silencioso():
                 link = entrada.get("link")
                 if not link or link in historial: continue
                 
-                # --- FILTRO CRÍTICO ACTUALIZADO: ÚLTIMAS 12 HORAS ---
+                titulo = entrada.get("title", "")
+                resumen = entrada.get("summary", "")
+                titulo_norm = normalizar_texto(titulo)
+                
+                # Filtro de exclusión manual
+                if any(linea_manual in titulo_norm for linea_manual in noticias_manuales if len(linea_manual) > 8):
+                    continue
+                
+                # Filtro de tiempo estricto (Posterior a las 10:00 PM del corte anterior)
                 fecha_parsed = entrada.get("published_parsed") or entrada.get("updated_parsed")
                 if fecha_parsed:
                     try:
                         nota_epoch = calendar.timegm(fecha_parsed)
-                        ahora_epoch = time.time()
-                        # 43200 segundos = 12 horas exactas
-                        if (ahora_epoch - nota_epoch) > 43200:
-                            continue  # Si es más vieja de 12 horas, la ignora por completo
-                    except:
-                        pass
-                
-                titulo = entrada.get("title", "")
-                resumen = entrada.get("summary", "")
+                        if nota_epoch < epoch_10pm_threshold:
+                            continue 
+                    except: pass
                 
                 hizo_match, kw_detectada = evaluar_texto(titulo, PARAMETROS)
                 if not hizo_match:
                     hizo_match, kw_detectada = evaluar_texto(resumen, PARAMETROS)
                 
                 if hizo_match:
+                    analisis_ia = analizar_nota_con_ia(titulo, resumen)
                     ahora = datetime.now()
                     timestamp_alerta = ahora.strftime("%H:%M del %d/%m/%Y")
                     
@@ -195,13 +296,15 @@ def ejecutar_monitoreo_silencioso():
                         f"🎯 *Match Origen:* `{kw_detectada}`\n"
                         f"📝 *Título:* {titulo}\n"
                         f"━━━━━━━━━━━━━━━━━━━\n"
+                        f"🧠 *ANÁLISIS DE INTELIGENCIA (IA PRO):*\n"
+                        f"{analisis_ia}\n"
+                        f"━━━━━━━━━━━━━━━━━━━\n"
                         f"🕒 _Información copiada a las {timestamp_alerta}_\n"
                         f"🔗 [Abrir Nota Completa]({link})"
                     )
-                    
                     enviar_mensaje_telegram(mensaje)
                     alertas_enviadas += 1
-                    time.sleep(0.4)  # Pausa de protección antispam para Telegram
+                    time.sleep(0.4)
                 
                 historial.append(link)
         except: continue
@@ -216,7 +319,7 @@ def iniciar_interfaz_bot():
     global MODO_LISTA
     offset = 0
     time.sleep(5)  
-    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios Activo (Sin IA - 12H)*\nEscribe `/ayuda` para ver los comandos.")
+    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios con IA Pro Activo*\nFiltro temporal estricto: posterior a las 10:00 PM.")
 
     while True:
         try:
@@ -235,17 +338,29 @@ def iniciar_interfaz_bot():
                 
                 if texto_comando == "/start" or texto_comando == "/ayuda":
                     menu = (
-                        "📱 *Panel de Control*\n\n"
-                        "👉 `/escanear` : Escaneo ultra rápido de portales (Últimas 12H).\n"
-                        "👉 `/modo` : Cambiar listas de medios.\n"
-                        "👉 `/parametros` : Ver criterios activos.\n"
-                        "👉 `/limpiar` : Forzar re-análisis completo de portadas."
+                        "📱 *Panel de Control Inteligente*\n\n"
+                        "👉 `/escanear` : Rastreo general regular (> 10:00 PM).\n"
+                        "👉 `/buscar IDEA CENTRAL` : Rastreo por conceptos cruzados (ignora límites de tiempo/historial).\n"
+                        "👉 `/modo` : Configurar listas de portales.\n"
+                        "👉 `/parametros` : Ver palabras clave operativas.\n"
+                        "👉 `/limpiar` : Vaciar historial de enlaces."
                     )
                     enviar_mensaje_telegram(menu)
+                    
+                elif texto_comando.startswith("/buscar ") or texto_comando.startswith("/investigar "):
+                    partes = texto_comando.split(" ", 1)
+                    if len(partes) > 1:
+                        tema_a_rastrear = partes[1].strip()
+                        enviar_mensaje_telegram(f"🔍 _Buscando coincidencias conceptuales para:_ `{tema_a_rastrear}`...")
+                        encontrados = ejecutar_busqueda_prioritaria(tema_a_rastrear)
+                        enviar_mensaje_telegram(f"✅ *Búsqueda matricial terminada.*\n✨ Notas localizadas por idea central: `{encontrados}`")
+                    else:
+                        enviar_mensaje_telegram("⚠️ Por favor especifica la idea central. Ejemplo: `/buscar FGE Tlapacoyan detencion`")
+                        
                 elif texto_comando == "/escanear":
-                    enviar_mensaje_telegram("🔍 _Escaneando portales de noticias... Por favor espera._")
+                    enviar_mensaje_telegram("🔍 _Procesando portales y generando análisis cognitivo de IA... Por favor espera._")
                     total, lista_usada = ejecutar_monitoreo_silencioso()
-                    enviar_mensaje_telegram(f"✅ *Escaneo Terminado.*\n✨ Alertas enviadas en el rango de 12H: `{total}`")
+                    enviar_mensaje_telegram(f"✅ *Escaneo Terminado.*\n✨ Alertas procesadas por IA: `{total}`")
                 elif texto_comando == "/modo":
                     msg_modo = f"⚙️ Modo actual: `{MODO_LISTA}`\n\n👉 `/set_auto` | `/set_lista1` | `/set_lista2`"
                     enviar_mensaje_telegram(msg_modo)
@@ -263,7 +378,7 @@ def iniciar_interfaz_bot():
                     enviar_mensaje_telegram(msg_kw)
                 elif texto_comando == "/limpiar":
                     if os.path.exists(ARCHIVO_HISTORIAL): os.remove(ARCHIVO_HISTORIAL)
-                    enviar_mensaje_telegram("🗑️ *Historial limpio.* Listo para procesar portadas.")
+                    enviar_mensaje_telegram("🗑️ *Historial limpio.* Listo para re-analizar portadas.")
         except: time.sleep(2)
 
 # ==============================================================================
@@ -271,7 +386,7 @@ def iniciar_interfaz_bot():
 # ==============================================================================
 web_app = Flask('')
 @web_app.route('/')
-def home(): return "Bot de Monitoreo con Filtro de Tiempo Activo 24/7 (12H Match)"
+def home(): return "Bot de Monitoreo Pro Operativo 24/7"
 
 if __name__ == "__main__":
     threading.Thread(target=iniciar_interfaz_bot, daemon=True).start()
