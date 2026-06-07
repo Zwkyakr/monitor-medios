@@ -48,6 +48,26 @@ LISTA_2 = [
     "https://www.excelsior.com.mx/rss.xml"
 ]
 
+# NUEVA: LISTA EXCLUSIVA FIN DE SEMANA (/escaneard)
+LISTA_FIN_DE_SEMANA = [
+    "https://golpepolitico.com/feed/",
+    "https://imagendelgolfo.mx/feed/",
+    "https://www.elbuentono.com.mx/feed/",
+    "https://veracruz.quadratin.com.mx/feed/",
+    "https://www.alcalorpolitico.com/rss/",
+    "https://www.diariodexalapa.com.mx/rss/",
+    "https://horacero.mx/feed/",
+    "https://diariodelistmo.com/feed/",
+    "https://ventanaver.mx/feed/",
+    "https://referentemx.com/feed/",
+    "https://vanguardiaveracruz.com/feed/",
+    "https://noreste.net/feed/",
+    "https://imagendeveracruz.mx/feed/",
+    "https://www.olivanoticias.com/feed/",
+    "https://www.masnoticias.mx/feed/",
+    "https://cambiodigitalnoticias.com/feed/"
+]
+
 # ==============================================================================
 # 3. PARÁMETROS DE FILTRADO
 # ==============================================================================
@@ -230,14 +250,19 @@ def ejecutar_busqueda_prioritaria(tema_objetivo):
         except: continue
     return coincidencias
 
-# --- MONITOREO ADAPTATIVO CON VENTANA DE TIEMPO DINÁMICA ---
-def ejecutar_monitoreo_silencioso(usar_ia=False, horas_atras=None):
-    medios_activos, nombre_lista = determinar_lista_medios()
+# --- MONITOREO ADAPTATIVO AVANZADO ---
+def ejecutar_monitoreo_silencioso(usar_ia=False, horas_atras=None, lista_forzada=None):
+    # Selección inteligente de la lista (Por defecto o forzada por comando)
+    if lista_forzada:
+        medios_activos = lista_forzada
+        nombre_lista = "Lista Fin de Semana"
+    else:
+        medios_activos, nombre_lista = determinar_lista_medios()
+        
     historial = cargar_historial()
     noticias_manuales = cargar_noticias_manuales()
     alertas_enviadas = 0
     
-    # Determinación del umbral de tiempo (Fijo o por horas atrás)
     if horas_atras:
         epoch_threshold = calendar.timegm(time.gmtime()) - (horas_atras * 3600)
     else:
@@ -256,7 +281,7 @@ def ejecutar_monitoreo_silencioso(usar_ia=False, horas_atras=None):
             for entrada in feed.entries:
                 link = entrada.get("link")
                 
-                # PROTECCIÓN ABSOLUTA ANTI-REPETICIÓN
+                # CONTROL ESTRICTO: NO REPETIR ALERTAS ENVIADAS EN HISTORIAL
                 if not link or link in historial: continue
                 
                 titulo = entrada.get("title", "")
@@ -283,27 +308,27 @@ def ejecutar_monitoreo_silencioso(usar_ia=False, horas_atras=None):
                     if usar_ia:
                         analisis_ia = analizar_nota_con_ia(titulo, resumen)
                         mensaje = (
-                            f"🚨 *ALERTA DE MONITOREO CRÍTICO (CON IA PRO)*\n"
+                            f"🚨 *ALERTA CRÍTICA [{nombre_lista.upper()}] (CON IA)*\n"
                             f"━━━━━━━━━━━━━━━━━━━\n"
                             f"📌 *Medio:* {nombre_medio}\n"
-                            f"🎯 *Match Origen:* `{kw_detectada}`\n"
+                            f"🎯 *Match:* `{kw_detectada}`\n"
                             f"📝 *Título:* {titulo}\n"
                             f"━━━━━━━━━━━━━━━━━━━\n"
                             f"🧠 *ANÁLISIS DE INTELIGENCIA (IA PRO):*\n"
                             f"{analisis_ia}\n"
                             f"━━━━━━━━━━━━━━━━━━━\n"
-                            f"🕒 _Información copiada a las {timestamp_alerta}_\n"
+                            f"🕒 _Copiado a las {timestamp_alerta}_\n"
                             f"🔗 [Abrir Nota Completa]({link})"
                         )
                     else:
                         mensaje = (
-                            f"🚨 *ALERTA DE MONITOREO CRÍTICO (ESTÁNDAR)*\n"
+                            f"🚨 *ALERTA CRÍTICA [{nombre_lista.upper()}] (ESTÁNDAR)*\n"
                             f"━━━━━━━━━━━━━━━━━━━\n"
                             f"📌 *Medio:* {nombre_medio}\n"
-                            f"🎯 *Match Origen:* `{kw_detectada}`\n"
+                            f"🎯 *Match:* `{kw_detectada}`\n"
                             f"📝 *Título:* {titulo}\n"
                             f"━━━━━━━━━━━━━━━━━━━\n"
-                            f"🕒 _Información copiada a las {timestamp_alerta}_\n"
+                            f"🕒 _Copiado a las {timestamp_alerta}_\n"
                             f"🔗 [Abrir Nota Completa]({link})"
                         )
                         
@@ -324,7 +349,7 @@ def iniciar_interfaz_bot():
     global MODO_LISTA
     offset = 0
     time.sleep(5)  
-    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia de Medios Dinámico Activo*")
+    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia Híbrido Actualizado v3*")
 
     while True:
         try:
@@ -343,11 +368,12 @@ def iniciar_interfaz_bot():
                 
                 if texto_comando == "/start" or texto_comando == "/ayuda":
                     menu = (
-                        "📱 *Panel de Control Híbrido*\n\n"
-                        "👉 `/escanear` o `/escanear X` : Rastreo estándar (Sin IA).\n"
-                        "👉 `/escanearIA` o `/escanearIA X` : Rastreo con análisis de IA Pro.\n"
-                        "👉 `/buscar IDEA` : Localizar comunicados por conceptos cruzados.\n"
-                        "👉 `/ayer BLOQUE_TITULOS` : Omitir notas capturadas hoy.\n"
+                        "📱 *Panel de Control Completo*\n\n"
+                        "👉 `/escanear` o `/escanear X` : Rastreo estándar Lista Regular (Sin IA).\n"
+                        "👉 `/escanearIA` o `/escanearIA X` : Rastreo Lista Regular con IA Pro.\n"
+                        "👉 `/escaneard` o `/escaneard X` : Rastreo estándar Lista Fin de Semana (Sin IA).\n"
+                        "👉 `/buscar IDEA` : Localizar comunicados urgentes.\n"
+                        "👉 `/ayer BLOQUE` : Bloquear notas capturadas hoy.\n"
                         "👉 `/limpiar` : Vaciar historial de enlaces."
                     )
                     enviar_mensaje_telegram(menu)
@@ -374,17 +400,29 @@ def iniciar_interfaz_bot():
                         encontrados = ejecutar_busqueda_prioritaria(tema_a_rastrear)
                         enviar_mensaje_telegram(f"✅ *Búsqueda terminada. Hallados:* `{encontrados}`")
                         
-                # --- PARSEO INTELIGENTE DE COMANDOS DE ESCANEO (FIJO O POR HORAS) ---
-                elif texto_comando.startswith("/escanearIA"):
-                    arg = texto_comando.replace("/escanearIA", "").strip()
+                # --- NUEVO COMANDO: ESCANEAR FIN DE SEMANA (AHORRO TOKENS) ---
+                elif texto_comando.startswith("/escaneard"):
+                    arg = texto_comando.replace("/escaneard", "").strip()
                     num = re.findall(r'\d+', arg)
                     horas = int(num[0]) if num else None
                     
                     if horas:
-                        enviar_mensaje_telegram(f"🔍 _Rastreando portales (Últimas {horas} horas con IA)... Por favor espera._")
+                        enviar_mensaje_telegram(f"🔍 _Rastreando Lista Fin de Semana (Últimas {horas} horas)... Por favor espera._")
+                        total, _ = ejecutar_monitoreo_silencioso(usar_ia=False, horas_atras=horas, lista_forzada=LISTA_FIN_DE_SEMANA)
+                    else:
+                        enviar_mensaje_telegram("🔍 _Rastreando Lista Fin de Semana (Corte desde 10:00 PM)... Por favor espera._")
+                        total, _ = ejecutar_monitoreo_silencioso(usar_ia=False, lista_forzada=LISTA_FIN_DE_SEMANA)
+                    enviar_mensaje_telegram(f"✅ *Escaneo Fin de Semana Terminado.*\n✨ Alertas enviadas: `{total}`")
+                    
+                elif texto_comando.startswith("/escanearIA"):
+                    arg = texto_comando.replace("/escanearIA", "").strip()
+                    num = re.findall(r'\d+', arg)
+                    horas = int(num[0]) if num else None
+                    if horas:
+                        enviar_mensaje_telegram(f"🔍 _Rastreando portales regulares (Últimas {horas} horas con IA)..._")
                         total, _ = ejecutar_monitoreo_silencioso(usar_ia=True, horas_atras=horas)
                     else:
-                        enviar_mensaje_telegram("🔍 _Rastreando portales (Corte desde 10:00 PM con IA)... Por favor espera._")
+                        enviar_mensaje_telegram("🔍 _Rastreando portales regulares (Corte desde 10:00 PM con IA)..._")
                         total, _ = ejecutar_monitoreo_silencioso(usar_ia=True)
                     enviar_mensaje_telegram(f"✅ *Escaneo Terminado.*\n✨ Alertas procesadas por IA Pro: `{total}`")
                     
@@ -392,12 +430,11 @@ def iniciar_interfaz_bot():
                     arg = texto_comando.replace("/escanear", "").strip()
                     num = re.findall(r'\d+', arg)
                     horas = int(num[0]) if num else None
-                    
                     if horas:
-                        enviar_mensaje_telegram(f"🔍 _Rastreando portales (Últimas {horas} horas - Sin IA)... Por favor espera._")
+                        enviar_mensaje_telegram(f"🔍 _Rastreando portales regulares (Últimas {horas} horas)..._")
                         total, _ = ejecutar_monitoreo_silencioso(usar_ia=False, horas_atras=horas)
                     else:
-                        enviar_mensaje_telegram("🔍 _Rastreando portales (Corte desde 10:00 PM - Sin IA)... Por favor espera._")
+                        enviar_mensaje_telegram("🔍 _Rastreando portales regulares (Corte desde 10:00 PM)..._")
                         total, _ = ejecutar_monitoreo_silencioso(usar_ia=False)
                     enviar_mensaje_telegram(f"✅ *Escaneo Terminado.*\n✨ Alertas enviadas: `{total}`")
                     
@@ -415,7 +452,7 @@ def iniciar_interfaz_bot():
                     enviar_mensaje_telegram("📌 Modo: `FORZAR LISTA 2`")
                 elif texto_comando == "/limpiar":
                     if os.path.exists(ARCHIVO_HISTORIAL): os.remove(ARCHIVO_HISTORIAL)
-                    enviar_mensaje_telegram("🗑️ *Historial de enlaces limpio.*")
+                    enviar_mensaje_telegram("🗑 *Historial de enlaces limpio.*")
         except: time.sleep(2)
 
 # ==============================================================================
@@ -423,7 +460,7 @@ def iniciar_interfaz_bot():
 # ==============================================================================
 web_app = Flask('')
 @web_app.route('/')
-def home(): return "Bot de Monitoreo Pro Dinámico Operando 24/7"
+def home(): return "Bot de Monitoreo Pro Híbrido Operando 24/7"
 
 if __name__ == "__main__":
     threading.Thread(target=iniciar_interfaz_bot, daemon=True).start()
