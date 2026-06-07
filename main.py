@@ -41,11 +41,9 @@ LISTA_1 = [
     "https://www.razon.com.mx/feed/",
     "https://www.excelsior.com.mx/rss.xml",
     "https://mvsnoticias.com/feed/"
-]
-
-LISTA_2 = [
     "https://www.jornada.com.mx/rss/edicion.xml",
     "https://www.excelsior.com.mx/rss.xml"
+   
 ]
 
 # NUEVA: LISTA EXCLUSIVA FIN DE SEMANA (/escaneard)
