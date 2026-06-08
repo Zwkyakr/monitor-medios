@@ -41,12 +41,13 @@ LISTA_1 = [
     "https://www.razon.com.mx/feed/",
     "https://www.excelsior.com.mx/rss.xml",
     "https://mvsnoticias.com/feed/"
-    "https://www.jornada.com.mx/rss/edicion.xml",
-    "https://www.excelsior.com.mx/rss.xml"
-   
 ]
 
-# NUEVA: LISTA EXCLUSIVA FIN DE SEMANA (/escaneard)
+LISTA_2 = [
+    "https://www.jornada.com.mx/rss/edicion.xml",
+    "https://www.excelsior.com.mx/rss.xml"
+]
+
 LISTA_FIN_DE_SEMANA = [
     "https://golpepolitico.com/feed/",
     "https://imagendelgolfo.mx/feed/",
@@ -160,14 +161,17 @@ def guardar_noticias_manuales(lista):
         with open(ARCHIVO_MANUALES, "w", encoding="utf-8") as f: json.dump(lista, f, ensure_ascii=False, indent=4)
     except: pass
 
+# --- CORRECCIÓN CRÍTICA DE COINCIDENCIAS ---
 def evaluar_texto(texto, palabras_clave):
     texto_norm = normalizar_texto(texto)
     for kw in palabras_clave:
         kw_norm = normalizar_texto(kw)
-        if len(kw_norm) <= 4:
-            if re.search(rf"\b{re.escape(kw_norm)}\b", texto_norm): return True, kw
-        else:
+        # Si tiene espacios (ej. "Rocío Nahle", "Boca del Río"), se busca frase completa
+        if " " in kw_norm:
             if kw_norm in texto_norm: return True, kw
+        # Si es una sola palabra (ej. "Acula", "Oluta", "Isla"), forzamos límites \b
+        else:
+            if re.search(rf"\b{re.escape(kw_norm)}\b", texto_norm): return True, kw
     return False, None
 
 def analizar_nota_con_ia(titulo, resumen):
@@ -226,8 +230,14 @@ def ejecutar_busqueda_prioritaria(tema_objetivo):
                 if all(palabra in texto_analisis_norm for palabra in palabras_clave):
                     link = entrada.get("link", "#")
                     analisis_ia = analizar_nota_con_ia(titulo, resumen)
-                    ahora = datetime.now()
-                    timestamp_alerta = ahora.strftime("%H:%M del %d/%m/%Y")
+                    
+                    fecha_parsed = entrada.get("published_parsed") or entrada.get("updated_parsed")
+                    if fecha_parsed:
+                        dt_utc = datetime(*fecha_parsed[:6])
+                        dt_veracruz = dt_utc - timedelta(hours=6)
+                        timestamp_noticia = dt_veracruz.strftime("%H:%M del %d/%m/%Y")
+                    else:
+                        timestamp_noticia = (datetime.utcnow() - timedelta(hours=6)).strftime("%H:%M del %d/%m/%Y")
                     
                     mensaje = (
                         f"🔥 *HALLAZGO PRIORITARIO / COMUNICADO*\n"
@@ -239,7 +249,7 @@ def ejecutar_busqueda_prioritaria(tema_objetivo):
                         f"🧠 *ANÁLISIS DE INTELIGENCIA (IA PRO):*\n"
                         f"{analisis_ia}\n"
                         f"━━━━━━━━━━━━━━━━━━━\n"
-                        f"🕒 _Rastreado de forma urgente a las {timestamp_alerta}_\n"
+                        f"🕒 _Publicado a las {timestamp_noticia}_\n"
                         f"🔗 [Abrir Nota del Comunicado]({link})"
                     )
                     enviar_mensaje_telegram(mensaje)
@@ -248,9 +258,7 @@ def ejecutar_busqueda_prioritaria(tema_objetivo):
         except: continue
     return coincidencias
 
-# --- MONITOREO ADAPTATIVO AVANZADO ---
 def ejecutar_monitoreo_silencioso(usar_ia=False, horas_atras=None, lista_forzada=None):
-    # Selección inteligente de la lista (Por defecto o forzada por comando)
     if lista_forzada:
         medios_activos = lista_forzada
         nombre_lista = "Lista Fin de Semana"
@@ -279,7 +287,6 @@ def ejecutar_monitoreo_silencioso(usar_ia=False, horas_atras=None, lista_forzada
             for entrada in feed.entries:
                 link = entrada.get("link")
                 
-                # CONTROL ESTRICTO: NO REPETIR ALERTAS ENVIADAS EN HISTORIAL
                 if not link or link in historial: continue
                 
                 titulo = entrada.get("title", "")
@@ -290,19 +297,25 @@ def ejecutar_monitoreo_silencioso(usar_ia=False, horas_atras=None, lista_forzada
                     continue
                 
                 fecha_parsed = entrada.get("published_parsed") or entrada.get("updated_parsed")
+                timestamp_noticia = None
+                
                 if fecha_parsed:
                     try:
                         nota_epoch = calendar.timegm(fecha_parsed)
                         if nota_epoch < epoch_threshold: continue 
+                        
+                        dt_utc = datetime(*fecha_parsed[:6])
+                        dt_veracruz = dt_utc - timedelta(hours=6)
+                        timestamp_noticia = dt_veracruz.strftime("%H:%M del %d/%m/%Y")
                     except: pass
                 
+                if not timestamp_noticia:
+                    timestamp_noticia = (datetime.utcnow() - timedelta(hours=6)).strftime("%H:%M del %d/%m/%Y")
+
                 hizo_match, kw_detectada = evaluar_texto(titulo, PARAMETROS)
                 if not hizo_match: hizo_match, kw_detectada = evaluar_texto(resumen, PARAMETROS)
                 
                 if hizo_match:
-                    ahora = datetime.now()
-                    timestamp_alerta = ahora.strftime("%H:%M del %d/%m/%Y")
-                    
                     if usar_ia:
                         analisis_ia = analizar_nota_con_ia(titulo, resumen)
                         mensaje = (
@@ -315,7 +328,7 @@ def ejecutar_monitoreo_silencioso(usar_ia=False, horas_atras=None, lista_forzada
                             f"🧠 *ANÁLISIS DE INTELIGENCIA (IA PRO):*\n"
                             f"{analisis_ia}\n"
                             f"━━━━━━━━━━━━━━━━━━━\n"
-                            f"🕒 _Copiado a las {timestamp_alerta}_\n"
+                            f"🕒 _Publicado a las {timestamp_noticia}_\n"
                             f"🔗 [Abrir Nota Completa]({link})"
                         )
                     else:
@@ -326,7 +339,7 @@ def ejecutar_monitoreo_silencioso(usar_ia=False, horas_atras=None, lista_forzada
                             f"🎯 *Match:* `{kw_detectada}`\n"
                             f"📝 *Título:* {titulo}\n"
                             f"━━━━━━━━━━━━━━━━━━━\n"
-                            f"🕒 _Copiado a las {timestamp_alerta}_\n"
+                            f"🕒 _Publicado a las {timestamp_noticia}_\n"
                             f"🔗 [Abrir Nota Completa]({link})"
                         )
                         
@@ -347,7 +360,7 @@ def iniciar_interfaz_bot():
     global MODO_LISTA
     offset = 0
     time.sleep(5)  
-    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia Híbrido Actualizado v3*")
+    enviar_mensaje_telegram("🤖 *Sistema de Inteligencia Híbrido Actualizado v3.2*")
 
     while True:
         try:
@@ -369,7 +382,7 @@ def iniciar_interfaz_bot():
                         "📱 *Panel de Control Completo*\n\n"
                         "👉 `/escanear` o `/escanear X` : Rastreo estándar Lista Regular (Sin IA).\n"
                         "👉 `/escanearIA` o `/escanearIA X` : Rastreo Lista Regular con IA Pro.\n"
-                        "👉 `/escaneard` o `/escaneard X` : Rastreo estándar Lista Fin de Semana (Sin IA).\n"
+                        "👉 `/escaneard` o `/escaneard X` : Rastreo Lista Fin de Semana (Sin IA).\n"
                         "👉 `/buscar IDEA` : Localizar comunicados urgentes.\n"
                         "👉 `/ayer BLOQUE` : Bloquear notas capturadas hoy.\n"
                         "👉 `/limpiar` : Vaciar historial de enlaces."
@@ -398,17 +411,15 @@ def iniciar_interfaz_bot():
                         encontrados = ejecutar_busqueda_prioritaria(tema_a_rastrear)
                         enviar_mensaje_telegram(f"✅ *Búsqueda terminada. Hallados:* `{encontrados}`")
                         
-                # --- NUEVO COMANDO: ESCANEAR FIN DE SEMANA (AHORRO TOKENS) ---
                 elif texto_comando.startswith("/escaneard"):
                     arg = texto_comando.replace("/escaneard", "").strip()
                     num = re.findall(r'\d+', arg)
                     horas = int(num[0]) if num else None
-                    
                     if horas:
-                        enviar_mensaje_telegram(f"🔍 _Rastreando Lista Fin de Semana (Últimas {horas} horas)... Por favor espera._")
+                        enviar_mensaje_telegram(f"🔍 _Rastreando Lista Fin de Semana (Últimas {horas} horas)..._")
                         total, _ = ejecutar_monitoreo_silencioso(usar_ia=False, horas_atras=horas, lista_forzada=LISTA_FIN_DE_SEMANA)
                     else:
-                        enviar_mensaje_telegram("🔍 _Rastreando Lista Fin de Semana (Corte desde 10:00 PM)... Por favor espera._")
+                        enviar_mensaje_telegram("🔍 _Rastreando Lista Fin de Semana (Corte desde 10:00 PM)..._")
                         total, _ = ejecutar_monitoreo_silencioso(usar_ia=False, lista_forzada=LISTA_FIN_DE_SEMANA)
                     enviar_mensaje_telegram(f"✅ *Escaneo Fin de Semana Terminado.*\n✨ Alertas enviadas: `{total}`")
                     
@@ -450,7 +461,7 @@ def iniciar_interfaz_bot():
                     enviar_mensaje_telegram("📌 Modo: `FORZAR LISTA 2`")
                 elif texto_comando == "/limpiar":
                     if os.path.exists(ARCHIVO_HISTORIAL): os.remove(ARCHIVO_HISTORIAL)
-                    enviar_mensaje_telegram("🗑 *Historial de enlaces limpio.*")
+                    enviar_mensaje_telegram("🗑️ *Historial de enlaces limpio.*")
         except: time.sleep(2)
 
 # ==============================================================================
